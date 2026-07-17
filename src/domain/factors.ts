@@ -55,14 +55,27 @@ export function factorMomentum(candles: Array<{ close: number }>): Factor {
   const change5d = (current - prev5) / prev5 * 100;
   const change20d = (current - prev20) / prev20 * 100;
   
-  let score = 0;
-  if (change5d > 3) score += 3;
-  else if (change5d > 1) score += 1;
-  else if (change5d < -3) score -= 3;
-  else if (change5d < -1) score -= 1;
+  // If no price change, return neutral
+  if (Math.abs(change5d) < 0.01 && Math.abs(change20d) < 0.01) {
+    return { category: 'momentum', label: '价格动量', score: 0, weight: 1, detail: '价格平稳' };
+  }
   
-  if (change20d > 10) score += 2;
+  let score = 0;
+  // Short-term momentum (more responsive)
+  if (change5d > 5) score += 4;
+  else if (change5d > 3) score += 3;
+  else if (change5d > 1) score += 2;
+  else if (change5d > 0.5) score += 1;
+  else if (change5d < -5) score -= 4;
+  else if (change5d < -3) score -= 3;
+  else if (change5d < -1) score -= 2;
+  else if (change5d < -0.5) score -= 1;
+  
+  // Medium-term momentum
+  if (change20d > 15) score += 3;
+  else if (change20d > 10) score += 2;
   else if (change20d > 5) score += 1;
+  else if (change20d < -15) score -= 3;
   else if (change20d < -10) score -= 2;
   else if (change20d < -5) score -= 1;
   
@@ -192,9 +205,14 @@ export function factorPremium(naverPrice: number, binancePrice: number, fxRate: 
   const premium = ((binancePrice - naverUsd) / naverUsd) * 100;
   
   let score = 0;
-  if (premium > 2) score = 3;
+  // More granular scoring for large premiums
+  if (premium > 5) score = 5;
+  else if (premium > 3) score = 4;
+  else if (premium > 2) score = 3;
   else if (premium > 1) score = 2;
   else if (premium > 0.5) score = 1;
+  else if (premium < -5) score = -5;
+  else if (premium < -3) score = -4;
   else if (premium < -2) score = -3;
   else if (premium < -1) score = -2;
   else if (premium < -0.5) score = -1;
@@ -288,10 +306,15 @@ export function factorLongShortRatio(longRatio: number): Factor {
   }
   
   let score = 0;
-  if (longRatio > 2) score = -2;
+  // Extreme long ratios are contrarian bearish signals
+  if (longRatio > 5) score = -4;
+  else if (longRatio > 3) score = -3;
+  else if (longRatio > 2) score = -2;
   else if (longRatio > 1.5) score = -1;
-  else if (longRatio < 0.5) score = 2;
-  else if (longRatio < 0.67) score = 1;
+  else if (longRatio < 0.3) score = 4;
+  else if (longRatio < 0.5) score = 3;
+  else if (longRatio < 0.67) score = 2;
+  else if (longRatio < 0.8) score = 1;
   
   return {
     category: 'lsRatio',
