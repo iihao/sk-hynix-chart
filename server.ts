@@ -602,6 +602,7 @@ const BINANCE_ENDPOINTS = [
   'https://fapi1.binance.com',
   'https://fapi2.binance.com',
 ];
+const BINANCE_PROXY = process.env.BINANCE_PROXY || process.env.HTTPS_PROXY || process.env.https_proxy || 'http://127.0.0.1:7890';
 let latestBinanceFundingTimeMs = 0;
 
 // Circuit breaker: skip Binance API when unreachable to avoid long hangs
@@ -749,7 +750,7 @@ async function binanceFetch(path: string) {
   let lastErr;
   for (const base of BINANCE_ENDPOINTS) {
     try {
-      const data = await fetchJSON(`${base}${path}`);
+      const data = await fetchJSONViaProxy(`${base}${path}`, BINANCE_PROXY);
       // Check for error response
       if (data && typeof data === 'object' && data.code !== undefined && data.code !== 0) {
         throw new Error(`Binance API error: ${data.msg || JSON.stringify(data)}`);
