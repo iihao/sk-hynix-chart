@@ -68,5 +68,10 @@ export function parseBacktestResponse(value: unknown): BacktestResponse {
   expectNumber(metrics.winRate, 'metrics.winRate');
   expectNumber(metrics.totalReturn, 'metrics.totalReturn');
   expectNumber(metrics.sharpe ?? metrics.sharpeRatio, 'metrics.sharpe');
+  expectNumber(metrics.profitFactor, 'metrics.profitFactor');
+  expectNumber(metrics.maxDrawdown, 'metrics.maxDrawdown');
+  expectNumber(metrics.totalTrades, 'metrics.totalTrades');
+  expectNumber(metrics.avgWin, 'metrics.avgWin');
+  expectNumber(metrics.avgLoss, 'metrics.avgLoss');
   return data as unknown as BacktestResponse;
 }

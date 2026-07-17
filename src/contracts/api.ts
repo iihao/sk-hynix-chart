@@ -127,7 +127,7 @@ export interface BacktestResponse {
   trades: BacktestTrade[];
   metrics: BacktestMetrics | null;
   equityCurve: number[] | Array<{ time: number; equity: number }>;
-  factorHistory: unknown[];
+  factorHistory?: unknown[];
   activeWeights?: Record<string, number>;
   activeParams?: Record<string, number>;
   optimizedWeights?: Record<string, number>;
@@ -146,10 +146,10 @@ export interface BacktestTrade {
   pnl: number;
   pnlPct: number;
   exitReason: string;
-  bars: number;
-  positionSizePct: number;
-  sl: number;
-  tp: number;
+  bars?: number;
+  positionSizePct?: number;
+  sl?: number;
+  tp?: number;
 }
 
 export interface BacktestMetrics {
@@ -160,10 +160,10 @@ export interface BacktestMetrics {
   sharpeRatio?: number;
   maxDrawdown: number;
   totalTrades: number;
-  avgHoldBars: number;
+  avgHoldBars?: number;
   avgWin: number;
   avgLoss: number;
-  expectancy: number;
+  expectancy?: number;
 }
 
 // ══════════════════════════════════════════════
@@ -183,6 +183,7 @@ export interface CalculatorResponse {
   closeFee: number;
   totalFee: number;
   fundingCost: number;
+  fundingPnl?: number;
   netPnl: number;
   roi: number;
   liquidationPrice: number;

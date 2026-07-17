@@ -130,6 +130,23 @@ describe('dashboard API contracts', () => {
     assert.equal(value.metrics?.sharpe, 0.3);
   });
 
+  it('rejects non-finite backtest metrics', () => {
+    assert.throws(() => parseBacktestResponse({
+      metrics: {
+        totalReturn: 1,
+        winRate: 100,
+        profitFactor: Number.POSITIVE_INFINITY,
+        sharpe: 0.3,
+        maxDrawdown: 0,
+        totalTrades: 1,
+        avgWin: 2,
+        avgLoss: 0,
+      },
+      trades: [],
+      equityCurve: [10000],
+    }), /metrics.profitFactor/);
+  });
+
   it('rejects malformed factor responses', () => {
     assert.throws(() => parseFactorsResponse({ factors: 'bad' }));
   });
