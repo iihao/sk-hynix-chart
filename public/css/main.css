@@ -26,13 +26,28 @@ body {
   flex-direction: column;
   transition: background 0.4s, color 0.4s;
 }
+
+/* ── Main Layout ── */
+.main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.chart-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .header, .toolbar, .chart-wrapper {
   margin-right: 0;
   transition: margin-right 0.22s ease, background 0.2s ease;
 }
 body.signal-panel-open .header,
 body.signal-panel-open .toolbar,
-body.signal-panel-open .chart-wrapper { margin-right: 280px; }
+body.signal-panel-open .chart-wrapper { margin-right: 0; }
 
 /* ── Header ── */
 .header {

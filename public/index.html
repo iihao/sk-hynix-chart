@@ -13,7 +13,7 @@
 </head>
 <body class="signal-panel-open">
 
-  <!-- Header -->
+  <!-- Header (Full Width) -->
   <div class="header">
     <div class="header-left">
       <div class="ticker-group">
@@ -75,8 +75,12 @@
     </div>
   </div>
 
-  <!-- Toolbar -->
-  <div class="toolbar">
+  <!-- Main Content Area -->
+  <div class="main-content">
+    <!-- Chart Area (Left) -->
+    <div class="chart-area">
+      <!-- Toolbar -->
+      <div class="toolbar">
     <button class="tf-btn" data-tf="m1" onclick="switchTF('m1',this)">
       <span class="tf-text">1分</span>
     </button>
@@ -126,16 +130,15 @@
       <div class="ohlc-bar" id="ohlc-h1"></div>
       <div class="loading-mask" id="load-h1"><div class="spinner"></div>加载中</div>
       <div id="chart-h1" style="width:100%;height:100%"></div>
+      </div>
     </div>
-  </div>
+    <!-- End Chart Area -->
 
-  <!-- Floating Calculator -->
-  <button class="calc-toggle" id="calcToggle" onclick="toggleCalculator()">₿</button>
-  <div class="calc-panel" id="calcPanel">
-    <div class="calc-panel-title">
-      合约计算器
-      <span>Binance Futures</span>
-    </div>
+    <!-- Signal Expand Strip -->
+    <div class="signal-expand-strip" id="signalExpandStrip" onclick="toggleSignalPanel()">◀</div>
+
+    <!-- Signal Panel (Right) -->
+    <div class="signal-panel open" id="signalPanel">
     <div class="fp-calc-row">
       <div class="fp-calc-field">
         <span class="fp-calc-label">开仓价格</span>
@@ -373,6 +376,114 @@
             <div id="btTradesArea"></div>
           </div>
         </div>
+      </div>
+    </div>
+    <!-- End Signal Panel -->
+  </div>
+  <!-- End Main Content -->
+
+  <!-- Floating Calculator -->
+  <button class="calc-toggle" id="calcToggle" onclick="toggleCalculator()">₿</button>
+  <div class="calc-panel" id="calcPanel">
+    <div class="calc-panel-title">
+      合约计算器
+      <span>Binance Futures</span>
+    </div>
+    <div class="fp-calc-row">
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">开仓价格</span>
+        <input type="number" class="fp-calc-input" id="fpCalcEntry" placeholder="0.00" step="0.01">
+      </div>
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">平仓价格</span>
+        <input type="number" class="fp-calc-input" id="fpCalcExit" placeholder="0.00" step="0.01">
+      </div>
+    </div>
+    <div class="fp-calc-row">
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">杠杆</span>
+        <select class="fp-calc-select" id="fpCalcLeverage">
+          <option value="2">2x</option>
+          <option value="3">3x</option>
+          <option value="5">5x</option>
+          <option value="10" selected>10x</option>
+          <option value="20">20x</option>
+          <option value="50">50x</option>
+          <option value="100">100x</option>
+          <option value="125">125x</option>
+        </select>
+      </div>
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">仓位 (USDT)</span>
+        <input type="number" class="fp-calc-input" id="fpCalcSize" placeholder="1000" step="100">
+      </div>
+    </div>
+    <div class="fp-calc-row">
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">手续费</span>
+        <select class="fp-calc-select" id="fpCalcFeeType">
+          <option value="taker">Taker 0.05%</option>
+          <option value="maker">Maker 0.02%</option>
+        </select>
+      </div>
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">资金费率 <span style="color:var(--yellow)">BN</span></span>
+        <input type="text" class="fp-calc-input" id="fpCalcFunding" readonly placeholder="加载中...">
+      </div>
+    </div>
+    <div class="fp-calc-row">
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">资金费次数</span>
+        <input type="number" class="fp-calc-input" id="fpCalcFundingCount" placeholder="0" value="0">
+      </div>
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">方向</span>
+        <div style="display:flex;gap:4px;">
+          <button class="fp-calc-btn long active" id="fpBtnLong" onclick="fpSetDirection('long')">做多</button>
+          <button class="fp-calc-btn short" id="fpBtnShort" onclick="fpSetDirection('short')">做空</button>
+        </div>
+      </div>
+    </div>
+    <div class="fp-calc-btns">
+      <button class="fp-calc-btn primary" onclick="fpCalculatePnl()">计算收益</button>
+      <button class="fp-calc-btn" style="background:var(--border);color:var(--text);" onclick="fpUseCurrentPrice()">当前价</button>
+    </div>
+    <div class="fp-calc-result" id="fpCalcResult" style="display:none;">
+      <div class="fp-result-row">
+        <span class="fp-result-label">仓位价值</span>
+        <span class="fp-result-val" id="fpResMargin">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">数量</span>
+        <span class="fp-result-val" id="fpResQty">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">开仓手续费</span>
+        <span class="fp-result-val" id="fpResOpenFee">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">平仓手续费</span>
+        <span class="fp-result-val" id="fpResCloseFee">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">资金费用</span>
+        <span class="fp-result-val" id="fpResFunding">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">总手续费</span>
+        <span class="fp-result-val warn" id="fpResTotalFee">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">毛盈亏</span>
+        <span class="fp-result-val" id="fpResPnl">--</span>
+      </div>
+      <div class="fp-result-total">
+        <span class="fp-result-total-label">净盈亏 (ROI)</span>
+        <span class="fp-result-total-val" id="fpResNetPnl">--</span>
+      </div>
+      <div class="fp-result-row" style="margin-top:6px;">
+        <span class="fp-result-label">强平价格</span>
+        <span class="fp-result-val warn" id="fpResLiq">--</span>
       </div>
     </div>
   </div>
