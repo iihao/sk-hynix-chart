@@ -1,6 +1,8 @@
 // @ts-nocheck
 import express, { Request, Response } from 'express';
 import https from 'https';
+import http from 'http';
+import tls from 'tls';
 import path from 'path';
 import Database from 'better-sqlite3';
 import {
@@ -58,6 +60,13 @@ import {
   BacktestParams,
   BacktestResult,
 } from './src/domain/backtest';
+import {
+  DashboardSnapshot,
+  isCompleteDashboardSnapshot,
+  mergeBinanceIntoSnapshot,
+} from './src/contracts/stream';
+import { parseBacktestParams } from './src/contracts/params';
+import { calculateContract, ContractValidationError } from './src/domain/contract';
 // ══════════════════════════════════════════
 //  Project Root & Data Directory
 // ══════════════════════════════════════════
@@ -220,6 +229,12 @@ const countTicks = db.prepare('SELECT COUNT(*) as cnt FROM ticks');
 const countAfterHours = db.prepare('SELECT COUNT(*) as cnt FROM ticks WHERE after_hours_price IS NOT NULL');
 
 function fetchJSON<T = any>(url: string): Promise<T> {
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
+
+  if (proxyUrl && url.startsWith('https://')) {
+    return fetchJSONViaProxy<T>(url, proxyUrl);
+  }
+
   return new Promise((resolve, reject) => {
     const req = https.get(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' }
@@ -238,6 +253,61 @@ function fetchJSON<T = any>(url: string): Promise<T> {
     });
     req.on('error', reject);
     req.setTimeout(10000, () => { req.destroy(); reject(new Error('timeout')); });
+  });
+}
+
+function fetchJSONViaProxy<T = any>(url: string, proxyUrl: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const proxyParsed = new URL(proxyUrl);
+    const proxyPort = parseInt(proxyParsed.port) || (proxyParsed.protocol === 'https:' ? 443 : 80);
+
+    const connectReq = http.request({
+      host: proxyParsed.hostname,
+      port: proxyPort,
+      method: 'CONNECT',
+      path: `${parsed.hostname}:443`,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
+
+    connectReq.on('connect', (res, socket) => {
+      if (res.statusCode !== 200) {
+        reject(new Error(`Proxy CONNECT failed: ${res.statusCode}`));
+        return;
+      }
+      const tlsSocket = tls.connect({
+        socket,
+        servername: parsed.hostname,
+      }, () => {
+        const reqPath = parsed.pathname + parsed.search;
+        const reqStr = `GET ${reqPath} HTTP/1.1\r\nHost: ${parsed.hostname}\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\r\nConnection: close\r\n\r\n`;
+        tlsSocket.write(reqStr);
+
+        let responseData = '';
+        tlsSocket.on('data', chunk => { responseData += chunk.toString(); });
+        tlsSocket.on('end', () => {
+          const headerEnd = responseData.indexOf('\r\n\r\n');
+          if (headerEnd === -1) { reject(new Error('Invalid proxy response')); return; }
+          const headers = responseData.slice(0, headerEnd);
+          const body = responseData.slice(headerEnd + 4);
+          const statusMatch = headers.match(/HTTP\/\d\.\d (\d+)/);
+          if (!statusMatch) { reject(new Error('No status code')); return; }
+          const statusCode = parseInt(statusMatch[1]);
+          if (statusCode < 200 || statusCode >= 300) {
+            reject(new Error(`HTTP ${statusCode}: ${body.slice(0, 200)}`));
+            return;
+          }
+          try { resolve(JSON.parse(body)); }
+          catch (e) { reject(new Error(`JSON parse: ${body.slice(0, 100)}`)); }
+        });
+        tlsSocket.on('error', reject);
+      });
+      tlsSocket.on('error', reject);
+    });
+
+    connectReq.on('error', reject);
+    connectReq.setTimeout(10000, () => { connectReq.destroy(); reject(new Error('proxy timeout')); });
+    connectReq.end();
   });
 }
 
@@ -519,6 +589,27 @@ const BINANCE_ENDPOINTS = [
 ];
 let latestBinanceFundingTimeMs = 0;
 
+// Circuit breaker: skip Binance API when unreachable to avoid long hangs
+let binanceCircuitOpen = false;
+let binanceCircuitResetAt = 0;
+const BINANCE_CIRCUIT_COOLDOWN = 300000; // 5 minutes
+
+function isBinanceCircuitOpen(): boolean {
+  if (!binanceCircuitOpen) return false;
+  if (Date.now() > binanceCircuitResetAt) {
+    binanceCircuitOpen = false;
+    console.log('[binance] circuit breaker reset, retrying API');
+    return false;
+  }
+  return true;
+}
+
+function tripBinanceCircuit(): void {
+  binanceCircuitOpen = true;
+  binanceCircuitResetAt = Date.now() + BINANCE_CIRCUIT_COOLDOWN;
+  console.log('[binance] circuit breaker tripped, using local data for 5 minutes');
+}
+
 // Binance local storage table
 db.exec(`
   CREATE TABLE IF NOT EXISTS binance_ticks (
@@ -615,6 +706,9 @@ function getBinanceLocal(interval) {
 }
 
 async function binanceFetch(path) {
+  if (isBinanceCircuitOpen()) {
+    throw new Error('Binance circuit breaker open');
+  }
   let lastErr;
   for (const base of BINANCE_ENDPOINTS) {
     try {
@@ -628,6 +722,7 @@ async function binanceFetch(path) {
       lastErr = e;
     }
   }
+  tripBinanceCircuit();
   throw lastErr || new Error('All Binance endpoints failed');
 }
 
@@ -659,6 +754,34 @@ async function binanceMeta() {
     low24h: parseFloat(ticker.lowPrice),
     volume24h: parseFloat(ticker.quoteVolume),
   };
+}
+
+function binanceMetaLocal() {
+  const latest = selectBinanceLatest.get();
+  if (!latest) return null;
+  return {
+    price: (latest as any).price,
+    markPrice: (latest as any).mark_price || (latest as any).price,
+    indexPrice: (latest as any).index_price || (latest as any).price,
+    fundingRate: (latest as any).funding_rate || 0,
+    nextFundingTime: 0,
+    high24h: (latest as any).high_24h || (latest as any).price,
+    low24h: (latest as any).low_24h || (latest as any).price,
+    volume24h: (latest as any).volume_24h || 0,
+    local: true,
+  };
+}
+
+async function binanceMetaWithFallback() {
+  try {
+    const meta = await binanceMeta();
+    return meta;
+  } catch (err) {
+    console.error(`[binance] meta API failed: ${err.message}, using local fallback`);
+    const local = binanceMetaLocal();
+    if (local) return local;
+    throw err;
+  }
 }
 
 // ═══ Binance Sentiment Data ═══
@@ -808,7 +931,7 @@ async function getAllTimeframes(source = 'yahoo') {
   let binance = null;
   try {
     // Fetch meta once, share across all timeframes (saves 3 redundant API calls)
-    const sharedMeta = await binanceMeta();
+    const sharedMeta = await binanceMetaWithFallback();
     const [b1, b5, b15, bh] = await Promise.all([
       binanceLine('1m', sharedMeta), binanceLine('5m', sharedMeta),
       binanceLine('15m', sharedMeta), binanceLine('1h', sharedMeta),
@@ -826,6 +949,7 @@ app.get('/api/data', async (req, res) => {
   const source = (req.query as any).source || 'yahoo';
   try {
     const data = await getAllTimeframes(source);
+    cacheDashboardSnapshot(data);
     res.json(data);
   } catch (err) {
     console.error(`[${source}] Fetch error:`, err.message);
@@ -834,6 +958,7 @@ app.get('/api/data', async (req, res) => {
         console.log('Trying naver fallback...');
         const data = await getAllTimeframes('naver');
         (data as any).fallbackFrom = source;
+        cacheDashboardSnapshot(data);
         res.json(data);
         return;
       } catch (e2) { console.error('[naver] Fallback also failed:', e2.message); }
@@ -869,6 +994,13 @@ interface SSEClient {
   source: string;
 }
 let clients: SSEClient[] = [];
+const lastSnapshotsBySource = new Map<string, DashboardSnapshot>();
+
+function cacheDashboardSnapshot(value: unknown): void {
+  if (isCompleteDashboardSnapshot(value)) {
+    lastSnapshotsBySource.set(value.source, value);
+  }
+}
 
 app.get('/api/stream', (req, res) => {
   const source = (req.query.source as string) || 'naver';
@@ -897,6 +1029,7 @@ async function broadcast() {
   for (const [source, group] of clientsBySource) {
     try {
       const data = await getAllTimeframes(source);
+      cacheDashboardSnapshot(data);
       const payload = `data: ${JSON.stringify(data)}\n\n`;
       group.forEach(c => c.res.write(payload));
       console.log(`[${new Date().toLocaleTimeString()}] ${source} → ${group.length} clients`);
@@ -907,6 +1040,7 @@ async function broadcast() {
         try {
           const data = await getAllTimeframes('naver');
           (data as any).fallbackFrom = source;
+          cacheDashboardSnapshot(data);
           const payload = `data: ${JSON.stringify(data)}\n\n`;
           group.forEach(c => c.res.write(payload));
         } catch (e2) { /* ignore */ }
@@ -1700,14 +1834,20 @@ app.get('/api/factors', (req, res) => {
     const indicators = calculateAllIndicators(candles);
     
     // Get Binance data
-    const binanceTicks = selectBinanceRange.all(now - rangeSec, now);
     const binanceLatest = selectBinanceLatest.get();
     const fundingRate = binanceLatest ? (binanceLatest as any).funding_rate || 0 : 0;
+    const sentimentRows = selectSentimentRange.all(now - rangeSec, now) as any[];
+    const latestSentiment = sentimentRows[sentimentRows.length - 1];
+    const previousSentiment = sentimentRows[sentimentRows.length - 2];
     
     // Get Naver data
     const naverLatest = selectLatest.get();
     const naverPrice = naverLatest ? (naverLatest as any).price : 0;
     const binancePrice = binanceLatest ? (binanceLatest as any).price : 0;
+    const latestClose = candles[candles.length - 1]?.close || 0;
+    const previousClose = candles[candles.length - 2]?.close || 0;
+    const latestOi = latestSentiment?.oi_value || latestSentiment?.open_interest;
+    const previousOi = previousSentiment?.oi_value || previousSentiment?.open_interest;
     
     const result = calculateAllFactors({
       candles,
@@ -1721,6 +1861,16 @@ app.get('/api/factors', (req, res) => {
       macdHist: indicators.latest.macd.histogram,
       support: indicators.support,
       resistance: indicators.resistance,
+      longRatio: latestSentiment?.ls_ratio > 0 ? latestSentiment.ls_ratio : undefined,
+      buyVol: latestSentiment?.taker_buy_vol > 0 ? latestSentiment.taker_buy_vol : undefined,
+      sellVol: latestSentiment?.taker_sell_vol > 0 ? latestSentiment.taker_sell_vol : undefined,
+      oiChange: latestOi > 0 && previousOi > 0
+        ? (latestOi - previousOi) / previousOi * 100
+        : undefined,
+      priceChange: latestOi > 0 && previousOi > 0 && previousClose > 0
+        ? (latestClose - previousClose) / previousClose * 100
+        : undefined,
+      weights: activeWeights,
     });
     
     res.json(result);
@@ -1754,6 +1904,7 @@ function toDomainBacktestParams(params, weights = activeWeights) {
     takeProfitPct: params.takeProfitPct,
     leverage: params.leverage,
     weights: { ...weights },
+    fxRate: krwUsdRate,
   };
 }
 
@@ -1879,11 +2030,18 @@ app.get('/api/backtest', async (req, res) => {
     const rangeSec = tfConfig.rangeSec;
     const intervalSec = tfConfig.intervalSec;
     const optimize = (req.query as any).optimize === 'true';
-    const entryThreshold = parseFloat((req.query as any).entryThreshold) || (activeParams as any).entryThreshold;
-    const holdBars = parseInt((req.query as any).holdBars) || (activeParams as any).holdBars;
-    const stopLossPct = parseFloat((req.query as any).stopLossPct) || (activeParams as any).stopLossPct;
-    const takeProfitPct = parseFloat((req.query as any).takeProfitPct) || (activeParams as any).takeProfitPct;
-    const leverage = parseInt((req.query as any).leverage) || (activeParams as any).leverage;
+    let parsedParams;
+    try {
+      parsedParams = parseBacktestParams(req.query as any, activeParams);
+    } catch (err) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_BACKTEST_PARAMS',
+          message: 'Invalid backtest parameters',
+        },
+      });
+    }
+    const { entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage } = parsedParams;
 
     const now = Math.floor(Date.now() / 1000);
     const ticks = selectRange.all(now - rangeSec, now);
@@ -1941,98 +2099,25 @@ app.get('/api/backtest', async (req, res) => {
     }
   } catch (err) {
     console.error('[backtest] error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'BACKTEST_FAILED' });
   }
 });
 
 // ══════════════════════════════════════════
 //  Contract Calculator API
 // ══════════════════════════════════════════
-const BINANCE_FEES = {
-  maker: 0.0002,   // 0.02%
-  taker: 0.0005,   // 0.05%
-};
-
-function calculateContract(params) {
-  const {
-    entryPrice,      // 开仓价格
-    exitPrice,       // 平仓价格
-    leverage,        // 杠杆倍数
-    positionSize,    // 仓位大小 (USDT)
-    direction,       // 'long' or 'short'
-    feeType = 'taker', // 'maker' or 'taker'
-    fundingRate = 0, // 资金费率
-    fundingCount = 0, // 资金费用结算次数
-  } = params;
-
-  // Input validation
-  if (!entryPrice || entryPrice <= 0) throw new Error('开仓价格必须大于0');
-  if (!exitPrice || exitPrice <= 0) throw new Error('平仓价格必须大于0');
-  if (!leverage || leverage < 1 || leverage > 125) throw new Error('杠杆倍数须在1-125之间');
-  if (!positionSize || positionSize <= 0) throw new Error('仓位大小必须大于0');
-  if (!['long', 'short'].includes(direction)) throw new Error('方向须为 long 或 short');
-  if (!['maker', 'taker'].includes(feeType)) throw new Error('手续费类型须为 maker 或 taker');
-
-  const fee = BINANCE_FEES[feeType] || BINANCE_FEES.taker;
-  const margin = positionSize / leverage;
-  const quantity = positionSize / entryPrice;
-
-  // 盈亏计算
-  let pnl;
-  if (direction === 'long') {
-    pnl = (exitPrice - entryPrice) * quantity;
-  } else {
-    pnl = (entryPrice - exitPrice) * quantity;
-  }
-
-  // 手续费计算 (开仓 + 平仓)
-  const openFee = positionSize * fee;
-  const closeFee = (quantity * exitPrice) * fee;
-  const totalFee = openFee + closeFee;
-
-  // 资金费用
-  const fundingCost = Math.abs(positionSize) * Math.abs(fundingRate) * fundingCount;
-
-  // 净盈亏
-  const netPnl = pnl - totalFee - fundingCost;
-  const roi = (netPnl / margin) * 100;
-
-  // 强平价格计算
-  let liquidationPrice;
-  const maintenanceMarginRate = 0.004; // 0.4% 维持保证金率
-  if (direction === 'long') {
-    liquidationPrice = entryPrice * (1 - 1/leverage + maintenanceMarginRate);
-  } else {
-    liquidationPrice = entryPrice * (1 + 1/leverage - maintenanceMarginRate);
-  }
-
-  return {
-    entryPrice,
-    exitPrice,
-    leverage,
-    positionSize,
-    margin: Math.round(margin * 100) / 100,
-    quantity: Math.round(quantity * 1000000) / 1000000,
-    direction,
-    pnl: Math.round(pnl * 100) / 100,
-    openFee: Math.round(openFee * 100) / 100,
-    closeFee: Math.round(closeFee * 100) / 100,
-    totalFee: Math.round(totalFee * 100) / 100,
-    fundingCost: Math.round(fundingCost * 100) / 100,
-    netPnl: Math.round(netPnl * 100) / 100,
-    roi: Math.round(roi * 100) / 100,
-    liquidationPrice: Math.round(liquidationPrice * 100) / 100,
-    feeType,
-    feeRate: fee,
-  };
-}
-
 app.post('/api/calculate', express.json(), (req, res) => {
   try {
     const result = calculateContract(req.body);
     res.json(result);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    if (err instanceof ContractValidationError) {
+      return res.status(400).json({
+        error: { code: 'INVALID_CONTRACT_PARAMS', message: err.message },
+      });
+    }
+    console.error('[calculate] error:', err);
+    res.status(500).json({ error: 'CALCULATION_FAILED' });
   }
 });
 
@@ -2063,19 +2148,34 @@ setInterval(() => { if (isMarketOpen() || isPreMarket() || isAfterHours()) broad
 
 // When market is closed, still push Binance data every 30s (Binance trades 24/7)
 setInterval(async () => {
-  if (isMarketOpen() || clients.length === 0) return;
+  if (isMarketOpen() || isPreMarket() || isAfterHours() || clients.length === 0) return;
   try {
     const binance = {};
-    const sharedMeta = await binanceMeta();
+    const sharedMeta = await binanceMetaWithFallback();
     const [b1, b5, b15, bh] = await Promise.all([
       binanceLine('1m', sharedMeta), binanceLine('5m', sharedMeta),
       binanceLine('15m', sharedMeta), binanceLine('1h', sharedMeta),
     ]);
     (binance as any).m1 = b1; (binance as any).m5 = b5; (binance as any).m15 = b15; (binance as any).h1 = bh;
-    // Merge with existing Naver data (from last full broadcast)
-    const payload = `data: ${JSON.stringify({ binance, serverTime: Date.now(), krwUsd: krwUsdRate })}\n\n`;
-    clients.forEach(c => c.res.write(payload));
-    console.log(`[${new Date().toLocaleTimeString()}] binance-only → ${clients.length} clients`);
+    const clientsBySource = new Map<string, SSEClient[]>();
+    for (const client of clients) {
+      const group = clientsBySource.get(client.source) || [];
+      group.push(client);
+      clientsBySource.set(client.source, group);
+    }
+    for (const [source, group] of clientsBySource) {
+      let previous = lastSnapshotsBySource.get(source);
+      if (!previous) {
+        const fresh = await getAllTimeframes(source);
+        cacheDashboardSnapshot(fresh);
+        previous = lastSnapshotsBySource.get((fresh as any).source);
+      }
+      const merged = mergeBinanceIntoSnapshot(previous, binance, Date.now());
+      lastSnapshotsBySource.set(merged.source, merged);
+      const payload = `data: ${JSON.stringify(merged)}\n\n`;
+      group.forEach(client => client.res.write(payload));
+    }
+    console.log(`[${new Date().toLocaleTimeString()}] closed-session snapshot → ${clients.length} clients`);
   } catch (err) {
     console.error('[binance-broadcast] error:', err.message);
   }
