@@ -39,15 +39,23 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
+  order: 0;
 }
 
-.header, .toolbar, .chart-wrapper {
-  margin-right: 0;
-  transition: margin-right 0.22s ease, background 0.2s ease;
+/* Header & Toolbar: full width, no margin */
+.header, .toolbar {
+  margin-right: 0 !important;
+  transition: background 0.2s ease;
 }
-body.signal-panel-open .header,
-body.signal-panel-open .toolbar,
-body.signal-panel-open .chart-wrapper { margin-right: 0; }
+
+/* Chart: flex takes remaining space */
+.chart-wrapper {
+  margin-right: 0 !important;
+  flex: 1;
+  min-width: 0;
+  transition: background 0.2s ease;
+}
 
 /* ── Header ── */
 .header {
@@ -239,9 +247,7 @@ body.signal-panel-open .chart-wrapper { margin-right: 0; }
 }
 
 @media (min-width: 1600px) {
-  body.signal-panel-open .header,
-  body.signal-panel-open .toolbar,
-  body.signal-panel-open .chart-wrapper { margin-right: 280px; }
+  /* Large screens: same flex layout, no margin override needed */
 }
 
 /* ── Error Toast ── */
