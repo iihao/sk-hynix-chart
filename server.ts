@@ -1105,78 +1105,49 @@ function findSupportResistance(candles) {
   return { support, resistance };
 }
 
+// Use new domain module for /api/indicators
 app.get('/api/indicators', (req, res) => {
   try {
     const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
     const now = Math.floor(Date.now() / 1000);
-
     const ticks = selectRange.all(now - rangeSec, now);
+    
     if (ticks.length < 2) {
-      return res.json({ indicators: null, signals: [], support: [], resistance: [] });
+      return res.json({ rsi: [], macd: { dif: [], dea: [], histogram: [] }, bollinger: { upper: [], mid: [], lower: [] }, ma5: [], ma20: [], volRatio: [], latest: null, signals: [], support: [], resistance: [], times: [] });
     }
-
+    
     const candles = buildCandlesFromTicks(ticks, intervalSec);
-    const closes = candles.map(c => c.close);
-    const times = candles.map(c => c.time);
-    const volumes = candles.map(c => c.volume);
-
-    // Calculate indicators
-    const ma5 = calcSMA(closes, 5);
-    const ma10 = calcSMA(closes, 10);
-    const ma20 = calcSMA(closes, 20);
-    const ma60 = calcSMA(closes, 60);
-    const ema12 = calcEMA(closes, 12);
-    const ema26 = calcEMA(closes, 26);
-    const rsi = calcRSI(closes, 14);
-    const macd = calcMACD(closes, 12, 26, 9);
-    const boll = calcBollinger(closes, 20, 2);
-
-    // Volume ratio (current vol / avg of last 20)
-    const recentVols = volumes.slice(-20);
-    const avgVol = recentVols.reduce((s, v) => s + v, 0) / recentVols.length;
-    const volRatio = avgVol > 0 ? Math.round(volumes[volumes.length - 1] / avgVol * 100) / 100 : 1;
-
-    // Detect signals
-    const signals = detectSignals(closes, times, {
-      ma5, ma20, rsi, dif: macd.dif, dea: macd.dea, hist: macd.hist,
-      bollUpper: boll.upper, bollLower: boll.lower,
-    });
-
-    // Support / Resistance
-    const sr = findSupportResistance(candles);
-
-    // Latest values for header
-    const latest = {
-      rsi: rsi[rsi.length - 1],
-      macdDif: macd.dif[macd.dif.length - 1],
-      macdDea: macd.dea[macd.dea.length - 1],
-      macdHist: macd.hist[macd.hist.length - 1],
-      volRatio,
-      ma5: ma5[ma5.length - 1],
-      ma20: ma20[ma20.length - 1],
-      bollUpper: boll.upper[boll.upper.length - 1],
-      bollLower: boll.lower[boll.lower.length - 1],
-    };
-
-    // MACD state
+    const result = calculateAllIndicators(candles);
+    
+    // Transform to match expected format
+    const latest = result.latest;
     let macdState = 'neutral';
-    if (latest.macdDif > latest.macdDea && latest.macdHist > 0) macdState = 'bullish';
-    else if (latest.macdDif < latest.macdDea && latest.macdHist < 0) macdState = 'bearish';
-
+    if (latest.macd.dif > latest.macd.dea && latest.macd.histogram > 0) macdState = 'bullish';
+    else if (latest.macd.dif < latest.macd.dea && latest.macd.histogram < 0) macdState = 'bearish';
+    
     res.json({
-      indicators: {
-        ma: { ma5, ma10, ma20, ma60 },
-        ema: { ema12, ema26 },
-        rsi,
-        macd,
-        boll,
-        volRatio,
+      rsi: result.rsi,
+      macd: result.macd,
+      bollinger: result.bollinger,
+      ma5: result.ma5,
+      ma20: result.ma20,
+      volRatio: result.volRatio,
+      latest: {
+        rsi: latest.rsi,
+        macdDif: latest.macd.dif,
+        macdDea: latest.macd.dea,
+        macdHist: latest.macd.histogram,
+        volRatio: latest.volRatio,
+        ma5: latest.ma5,
+        ma20: latest.ma20,
+        bollUpper: latest.bollinger.upper,
+        bollLower: latest.bollinger.lower,
+        macdState,
       },
-      signals,
-      support: sr.support,
-      resistance: sr.resistance,
-      latest: { ...latest, macdState },
-      times,
+      signals: result.signals,
+      support: result.support,
+      resistance: result.resistance,
+      times: candles.map(c => c.time),
     });
   } catch (err) {
     console.error('[indicators] error:', err.message);
@@ -1864,120 +1835,45 @@ app.post('/api/news/refresh', async (req, res) => {
   res.json(newsSentiment);
 });
 
+// Use new domain module for /api/factors
 app.get('/api/factors', (req, res) => {
   try {
     const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
     const now = Math.floor(Date.now() / 1000);
-
     const ticks = selectRange.all(now - rangeSec, now);
-    const candles = ticks.length > 1 ? buildCandlesFromTicks(ticks, intervalSec) : [];
-
-    // Get latest Naver and Binance data
-    const naverLatest = selectLatest.get();
-    const binanceTicks = selectBinanceRange.all(now - 86400, now); // last 24h
-    const binanceLatest = selectBinanceLatest.get();
-    const basisSpotTicks = selectRange.all(now - 7 * 86400, now);
-    const basisBinanceTicks = selectBinanceRange.all(now - 7 * 86400, now);
-
-    // Get indicators
-    let indicators = null;
-    if (candles.length > 26) {
-      const closes = candles.map(c => c.close);
-      const rsiArr = calcRSI(closes, 14);
-      const macdObj = calcMACD(closes, 12, 26, 9);
-      indicators = {
-        rsi: rsiArr[rsiArr.length - 1],
-        macdHist: macdObj.hist[macdObj.hist.length - 1],
-        macdDif: macdObj.dif[macdObj.dif.length - 1],
-        macdDea: macdObj.dea[macdObj.dea.length - 1],
-      };
+    
+    if (ticks.length < 2) {
+      return res.json({ factors: [], composite: 0, direction: 'neutral', confidence: 0 });
     }
-
-    // Get S/R
-    const sr = candles.length > 5 ? findSupportResistance(candles) : { support: [], resistance: [] };
-
-    // Get Binance sentiment data
-    const sentimentRows = selectSentimentRange.all(now - 6 * 3600, now);
-    const sentimentLatest = sentimentRows[sentimentRows.length - 1] || selectSentimentLatest.get();
-    const marketContext = {
-      korea: { ...getKoreaSessionState(Date.now()), nextOpen: getNextOpenTime() },
-      funding: getFundingCountdown({ nowMs: Date.now(), nextFundingTimeMs: latestBinanceFundingTimeMs, intervalHours: 4 }),
-      event: getEventWindow(Date.now()),
-    };
-    const basisSeries = alignBasisSeries({
-      spotTicks: basisSpotTicks,
-      binanceTicks: basisBinanceTicks,
+    
+    const candles = buildCandlesFromTicks(ticks, intervalSec);
+    const indicators = calculateAllIndicators(candles);
+    
+    // Get Binance data
+    const binanceTicks = selectBinanceRange.all(now - rangeSec, now);
+    const binanceLatest = selectBinanceLatest.get();
+    const fundingRate = binanceLatest ? (binanceLatest as any).funding_rate || 0 : 0;
+    
+    // Get Naver data
+    const naverLatest = selectLatest.get();
+    const naverPrice = naverLatest ? (naverLatest as any).price : 0;
+    const binancePrice = binanceLatest ? (binanceLatest as any).price : 0;
+    
+    const result = calculateAllFactors({
+      candles,
+      fundingRate,
+      krwUsd: krwUsdRate,
+      prevKrwUsd: krwUsdRate,
+      naverPrice,
+      binancePrice,
       fxRate: krwUsdRate,
-      bucketSec: 15 * 60,
+      rsi: indicators.latest.rsi,
+      macdHist: indicators.latest.macd.histogram,
+      support: indicators.support,
+      resistance: indicators.resistance,
     });
-    const basis = computeBasisSnapshot(basisSeries, { lookback: 96, bandWidth: 2 });
-
-    // Calculate all factors
-    const factors = [
-      factorMomentum(candles),
-      factorFundingRate(binanceTicks),
-      factorVolume(candles),
-      factorVolatility(candles),
-      factorExchangeRate(),
-      factorPremium(naverLatest, binanceLatest),
-      factorIndicatorMomentum(indicators),
-      factorSupportResistance(candles, sr),
-      factorLongShortRatio(sentimentLatest),
-      factorTakerVolume(sentimentLatest),
-      factorOpenInterest(sentimentRows.length ? sentimentRows : sentimentLatest ? [sentimentLatest] : [], candles),
-      factorLongShortTrend(),
-      factorWhaleActivity(),
-      factorNewsSentiment(),
-    ].filter(f => f.weight > 0); // remove factors with no data
-
-    // Composite score using optimized weights
-    const totalWeight = factors.reduce((s, f) => s + (activeWeights[f.category] || f.weight), 0);
-    const composite = totalWeight > 0
-      ? Math.round(factors.reduce((s, f) => s + f.score * (activeWeights[f.category] || f.weight), 0) / totalWeight * 10) / 10
-      : 0;
-
-    let label, color;
-    if (composite > 5) { label = '强烈看多'; color = 'strong_bullish'; }
-    else if (composite > 2) { label = '看多'; color = 'bullish'; }
-    else if (composite > -2) { label = '中性'; color = 'neutral'; }
-    else if (composite > -5) { label = '看空'; color = 'bearish'; }
-    else { label = '强烈看空'; color = 'strong_bearish'; }
-
-    const summary = generateFactorSummary(factors, composite);
-    const atrPct = calcAtrPctFromCandles(candles, 14);
-    const regime = deriveRegime({
-      composite,
-      consensus: calcFactorConsensus(factors),
-      eventStatus: marketContext.event.status,
-      basisZScore: basis.ready ? basis.zScore : 0,
-      atrPct,
-    });
-
-    // Generate strategy recommendation using optimized params
-    const baseStrategy = generateStrategy(factors, composite, indicators, candles, sr, naverLatest, binanceLatest, {
-      regime,
-      marketContext,
-      basis,
-    });
-    const risk = buildRiskOverlay({
-      direction: baseStrategy.direction,
-      atrPct,
-      volatilityScore: factors.find(f => f.category === 'volatility')?.score || 0,
-      fundingRate: binanceLatest?.funding_rate || 0,
-      eventStatus: marketContext.event.status,
-      basisZScore: basis.ready ? basis.zScore : 0,
-      regimeMode: regime.mode,
-    });
-    const strategy = applyRiskToStrategy(baseStrategy, risk, { regime, marketContext, basis });
-    const sourceHealth = getSourceHealthSnapshot();
-    const coverage = buildFactorCoverage({ expectedFactors: FACTOR_DEFS, factors, sourceHealth });
-
-    res.json({
-      factors, composite: { score: composite, label, color }, summary, strategy,
-      coverage, sourceHealth, marketContext, basis, risk, regime,
-      activeWeights, activeParams,
-      optimizeTime: lastOptimizeTime ? new Date(lastOptimizeTime).toISOString() : null,
-    });
+    
+    res.json(result);
   } catch (err) {
     console.error('[factors] error:', err.message);
     res.status(500).json({ error: err.message });
@@ -2832,168 +2728,6 @@ setInterval(() => { fetchBinanceSentiment(); }, 300000);
 // ══════════════════════════════════════════
 //  New Domain-based API Endpoints
 // ══════════════════════════════════════════
-
-// GET /api/v2/indicators - Use new indicators module
-app.get('/api/v2/indicators', (req, res) => {
-  try {
-    const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
-    const now = Math.floor(Date.now() / 1000);
-    const ticks = selectRange.all(now - rangeSec, now);
-    
-    if (ticks.length < 2) {
-      return res.json({ indicators: null, signals: [], support: [], resistance: [] });
-    }
-    
-    const candles = buildCandlesFromTicks(ticks, intervalSec);
-    const result = calculateAllIndicators(candles);
-    res.json(result);
-  } catch (err) {
-    console.error('[v2/indicators] error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/v2/factors - Use new factors module
-app.get('/api/v2/factors', async (req, res) => {
-  try {
-    const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
-    const now = Math.floor(Date.now() / 1000);
-    const ticks = selectRange.all(now - rangeSec, now);
-    
-    if (ticks.length < 2) {
-      return res.json({ factors: [], composite: 0, direction: 'neutral', confidence: 0 });
-    }
-    
-    const candles = buildCandlesFromTicks(ticks, intervalSec);
-    const indicators = calculateAllIndicators(candles);
-    
-    // Get Binance data
-    const binanceTicks = selectBinanceRange.all(now - rangeSec, now);
-    const binanceLatest = selectBinanceLatest.get();
-    const fundingRate = binanceLatest ? (binanceLatest as any).funding_rate || 0 : 0;
-    
-    // Get Naver data
-    const naverLatest = selectLatest.get();
-    const naverPrice = naverLatest ? (naverLatest as any).price : 0;
-    const binancePrice = binanceLatest ? (binanceLatest as any).price : 0;
-    
-    const result = calculateAllFactors({
-      candles,
-      fundingRate,
-      krwUsd: krwUsdRate,
-      prevKrwUsd: krwUsdRate,
-      naverPrice,
-      binancePrice,
-      fxRate: krwUsdRate,
-      rsi: indicators.latest.rsi,
-      macdHist: indicators.latest.macd.histogram,
-      support: indicators.support,
-      resistance: indicators.resistance,
-    });
-    
-    res.json(result);
-  } catch (err) {
-    console.error('[v2/factors] error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/v2/strategy - Use new strategy module
-app.post('/api/v2/strategy', async (req, res) => {
-  try {
-    const { rangeSec, intervalSec } = getTimeframeConfig((req.body as any).tf || 'm5');
-    const now = Math.floor(Date.now() / 1000);
-    const ticks = selectRange.all(now - rangeSec, now);
-    
-    if (ticks.length < 2) {
-      return res.json({ direction: 'neutral', entry: '观望', confidence: 0 });
-    }
-    
-    const candles = buildCandlesFromTicks(ticks, intervalSec);
-    const indicators = calculateAllIndicators(candles);
-    
-    // Get Binance data
-    const binanceTicks = selectBinanceRange.all(now - rangeSec, now);
-    const binanceLatest = selectBinanceLatest.get();
-    const fundingRate = binanceLatest ? (binanceLatest as any).funding_rate || 0 : 0;
-    
-    // Get Naver data
-    const naverLatest = selectLatest.get();
-    const naverPrice = naverLatest ? (naverLatest as any).price : 0;
-    const binancePrice = binanceLatest ? (binanceLatest as any).price : 0;
-    
-    const factors = calculateAllFactors({
-      candles,
-      fundingRate,
-      krwUsd: krwUsdRate,
-      prevKrwUsd: krwUsdRate,
-      naverPrice,
-      binancePrice,
-      fxRate: krwUsdRate,
-      rsi: indicators.latest.rsi,
-      macdHist: indicators.latest.macd.histogram,
-      support: indicators.support,
-      resistance: indicators.resistance,
-    });
-    
-    const strategy = generateStrategy({
-      factors: factors.factors,
-      composite: factors.composite,
-      indicators: indicators.latest,
-      candles,
-      support: indicators.support,
-      resistance: indicators.resistance,
-      naverPrice,
-      binancePrice,
-      fundingRate,
-    });
-    
-    res.json(strategy);
-  } catch (err) {
-    console.error('[v2/strategy] error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/v2/backtest - Use new backtest module
-app.get('/api/v2/backtest', async (req, res) => {
-  try {
-    const params: BacktestParams = {
-      threshold: parseFloat((req.query as any).threshold) || 2,
-      holdBars: parseInt((req.query as any).holdBars) || 12,
-      leverage: parseInt((req.query as any).leverage) || 1,
-      stopLossPct: parseFloat((req.query as any).stopLoss) || 3,
-      takeProfitPct: parseFloat((req.query as any).takeProfit) || 5,
-    };
-    
-    const optimize = (req.query as any).optimize === 'true';
-    
-    // Get historical data
-    const now = Math.floor(Date.now() / 1000);
-    const rangeSec = 30 * 86400; // 30 days
-    const intervalSec = 300; // 5 minutes
-    
-    const ticks = selectRange.all(now - rangeSec, now);
-    const candles = buildCandlesFromTicks(ticks, intervalSec);
-    const binanceTicks = selectBinanceRange.all(now - rangeSec, now);
-    
-    if (candles.length < 100) {
-      return res.json({ error: 'Insufficient data for backtest' });
-    }
-    
-    let result: BacktestResult;
-    if (optimize) {
-      result = optimizeWeights(candles, binanceTicks, []);
-    } else {
-      result = backtestEngine(candles, binanceTicks, [], params);
-    }
-    
-    res.json(result);
-  } catch (err) {
-    console.error('[v2/backtest] error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 app.listen(PORT, () => {
   console.log(`\n  SK Hynix Chart Server (multi-source + SQLite)`);
