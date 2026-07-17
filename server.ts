@@ -2335,7 +2335,7 @@ setInterval(() => { if (isMarketOpen() || isPreMarket() || isAfterHours()) broad
 
 // When market is closed, still push Binance data every 30s (Binance trades 24/7)
 setInterval(async () => {
-  if (isMarketOpen() || isPreMarket() || isAfterHours() || clients.length === 0) return;
+  if (isMarketOpen() || isPreMarket() || isAfterHours()) return;
   try {
     const binance = {};
     const sharedMeta = await binanceMetaWithFallback();
@@ -2344,25 +2344,37 @@ setInterval(async () => {
       binanceLine('15m', sharedMeta), binanceLine('1h', sharedMeta),
     ]);
     (binance as any).m1 = b1; (binance as any).m5 = b5; (binance as any).m15 = b15; (binance as any).h1 = bh;
-    const clientsBySource = new Map<string, SSEClient[]>();
-    for (const client of clients) {
-      const group = clientsBySource.get(client.source) || [];
-      group.push(client);
-      clientsBySource.set(client.source, group);
-    }
-    for (const [source, group] of clientsBySource) {
+    // Always update snapshot with latest Binance data
+    for (const source of ['naver', 'yahoo']) {
       let previous = lastSnapshotsBySource.get(source);
       if (!previous) {
         const fresh = await getAllTimeframes(source);
         cacheDashboardSnapshot(fresh);
         previous = lastSnapshotsBySource.get((fresh as any).source);
       }
-      const merged = mergeBinanceIntoSnapshot(previous, binance, Date.now());
-      lastSnapshotsBySource.set(merged.source, merged);
-      const payload = `data: ${JSON.stringify(merged)}\n\n`;
-      group.forEach(client => client.res.write(payload));
+      if (previous) {
+        const merged = mergeBinanceIntoSnapshot(previous, binance, Date.now());
+        lastSnapshotsBySource.set(merged.source, merged);
+      }
     }
-    console.log(`[${new Date().toLocaleTimeString()}] closed-session snapshot → ${clients.length} clients`);
+
+    // Push to connected clients
+    if (clients.length > 0) {
+      const clientsBySource = new Map<string, SSEClient[]>();
+      for (const client of clients) {
+        const group = clientsBySource.get(client.source) || [];
+        group.push(client);
+        clientsBySource.set(client.source, group);
+      }
+      for (const [source, group] of clientsBySource) {
+        const snapshot = lastSnapshotsBySource.get(source);
+        if (snapshot) {
+          const payload = `data: ${JSON.stringify(snapshot)}\n\n`;
+          group.forEach(client => client.res.write(payload));
+        }
+      }
+    }
+    console.log(`[${new Date().toLocaleTimeString()}] binance-update → ${clients.length} clients`);
   } catch (err) {
     console.error('[binance-broadcast] error:', err.message);
   }

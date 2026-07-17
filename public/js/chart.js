@@ -38,7 +38,7 @@ export function makeChart(containerId, tf) {
       timeVisible: true,
       secondsVisible: false,
       tickMarkFormatter: (time) => {
-        const d = new Date(time * 1000 + 9 * 3600000);
+        const d = new Date(time * 1000 + 8 * 3600000); // Beijing time (UTC+8)
         return (
           String(d.getUTCHours()).padStart(2, '0') +
           ':' +
@@ -81,6 +81,12 @@ export function makeChart(containerId, tf) {
     lastValueVisible: true,
     title: 'BN',
   });
+
+  // ── Indicator Overlay Series ──
+  const ma5Series = chart.addLineSeries({ color: '#e8a838', lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, title: 'MA5' });
+  const ma20Series = chart.addLineSeries({ color: '#e058a0', lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, title: 'MA20' });
+  const bollUpper = chart.addLineSeries({ color: 'rgba(156,163,175,0.4)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, title: 'BOLL' });
+  const bollLower = chart.addLineSeries({ color: 'rgba(156,163,175,0.4)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
 
   // OHLC crosshair handler
   chart.subscribeCrosshairMove((param) => {
@@ -136,7 +142,26 @@ export function makeChart(containerId, tf) {
   });
   ro.observe(el);
 
-  return { chart, series, volSeries, naverLine, bnSeries, initialFramed: false, priceLines: [] };
+  return { chart, series, volSeries, naverLine, bnSeries, ma5Series, ma20Series, bollUpper, bollLower, initialFramed: false, priceLines: [] };
+}
+
+/* ── Apply Indicator Overlays ── */
+export function applyIndicators(tf, indicators, times) {
+  const c = state.charts[tf];
+  if (!c || !indicators) return;
+
+  const toLine = (arr) => {
+    if (!arr || !arr.length || !times || !times.length) return [];
+    return arr.map((v, i) => {
+      if (v == null || i >= times.length) return null;
+      return { time: times[i], value: state.currency === 'KRW' ? v : v / state.krwUsdRate };
+    }).filter(Boolean);
+  };
+
+  if (indicators.ma5 && c.ma5Series) c.ma5Series.setData(toLine(indicators.ma5));
+  if (indicators.ma20 && c.ma20Series) c.ma20Series.setData(toLine(indicators.ma20));
+  if (indicators.bollinger?.upper && c.bollUpper) c.bollUpper.setData(toLine(indicators.bollinger.upper));
+  if (indicators.bollinger?.lower && c.bollLower) c.bollLower.setData(toLine(indicators.bollinger.lower));
 }
 
 /* ── Support/Resistance Lines ── */

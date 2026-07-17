@@ -9,7 +9,7 @@ import {
   $,
   showError,
 } from './utils.js';
-import { makeChart, pushData, resetChartFraming, switchTF as switchChartTimeframe, updateSupportResistance } from './chart.js';
+import { makeChart, pushData, resetChartFraming, switchTF as switchChartTimeframe, updateSupportResistance, applyIndicators } from './chart.js';
 import {
   toggleCalculator,
   fpSetDirection,
@@ -265,7 +265,7 @@ async function updateIndicators() {
     }
 
     renderSignals(document, $('signalsContainer'), data.signals);
-    
+
     // Update support/resistance lines on chart
     const levelGroup = state.currentSource === 'naver'
       ? data.levels?.spot
@@ -275,7 +275,10 @@ async function updateIndicators() {
         currency: 'KRW', support: data.support, resistance: data.resistance,
       });
     }
-    
+
+    // Apply indicator overlays (MA, Bollinger)
+    applyIndicators(state.activeTF, data, data.times);
+
     dashboardController.markPanel('indicators', 'ready');
   } catch (e) {
     if (e.name === 'AbortError') return;
