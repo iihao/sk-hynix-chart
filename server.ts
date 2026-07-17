@@ -34,6 +34,31 @@ import {
   TickStats,
 } from './types';
 
+// Domain modules
+import {
+  calculateAllIndicators,
+  IndicatorsData,
+  Signal,
+  SupportResistance,
+} from './src/domain/indicators';
+import {
+  calculateAllFactors,
+  Factor,
+  FactorResult,
+} from './src/domain/factors';
+import {
+  generateStrategy,
+  Strategy,
+  RiskOverlay,
+  Regime,
+} from './src/domain/strategy';
+import {
+  backtestEngine,
+  optimizeWeights,
+  BacktestParams,
+  BacktestResult,
+} from './src/domain/backtest';
+
 // ══════════════════════════════════════════
 //  Project Root & Data Directory
 // ══════════════════════════════════════════
@@ -2787,7 +2812,7 @@ setInterval(async () => {
     (binance as any).m1 = b1; (binance as any).m5 = b5; (binance as any).m15 = b15; (binance as any).h1 = bh;
     // Merge with existing Naver data (from last full broadcast)
     const payload = `data: ${JSON.stringify({ binance, serverTime: Date.now(), krwUsd: krwUsdRate })}\n\n`;
-    clients.forEach(c => c.write(payload));
+    clients.forEach(c => c.res.write(payload));
     console.log(`[${new Date().toLocaleTimeString()}] binance-only → ${clients.length} clients`);
   } catch (err) {
     console.error('[binance-broadcast] error:', err.message);
@@ -2803,6 +2828,172 @@ setInterval(() => { recordBinanceTick(); }, 30000);
 // Fetch Binance sentiment data every 5 minutes
 fetchBinanceSentiment();
 setInterval(() => { fetchBinanceSentiment(); }, 300000);
+
+// ══════════════════════════════════════════
+//  New Domain-based API Endpoints
+// ══════════════════════════════════════════
+
+// GET /api/v2/indicators - Use new indicators module
+app.get('/api/v2/indicators', (req, res) => {
+  try {
+    const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
+    const now = Math.floor(Date.now() / 1000);
+    const ticks = selectRange.all(now - rangeSec, now);
+    
+    if (ticks.length < 2) {
+      return res.json({ indicators: null, signals: [], support: [], resistance: [] });
+    }
+    
+    const candles = buildCandlesFromTicks(ticks, intervalSec);
+    const result = calculateAllIndicators(candles);
+    res.json(result);
+  } catch (err) {
+    console.error('[v2/indicators] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/v2/factors - Use new factors module
+app.get('/api/v2/factors', async (req, res) => {
+  try {
+    const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
+    const now = Math.floor(Date.now() / 1000);
+    const ticks = selectRange.all(now - rangeSec, now);
+    
+    if (ticks.length < 2) {
+      return res.json({ factors: [], composite: 0, direction: 'neutral', confidence: 0 });
+    }
+    
+    const candles = buildCandlesFromTicks(ticks, intervalSec);
+    const indicators = calculateAllIndicators(candles);
+    
+    // Get Binance data
+    const binanceTicks = selectBinanceRange.all(now - rangeSec, now);
+    const binanceLatest = selectBinanceLatest.get();
+    const fundingRate = binanceLatest ? (binanceLatest as any).funding_rate || 0 : 0;
+    
+    // Get Naver data
+    const naverLatest = selectLatest.get();
+    const naverPrice = naverLatest ? (naverLatest as any).price : 0;
+    const binancePrice = binanceLatest ? (binanceLatest as any).price : 0;
+    
+    const result = calculateAllFactors({
+      candles,
+      fundingRate,
+      krwUsd: krwUsdRate,
+      prevKrwUsd: krwUsdRate,
+      naverPrice,
+      binancePrice,
+      fxRate: krwUsdRate,
+      rsi: indicators.latest.rsi,
+      macdHist: indicators.latest.macd.histogram,
+      support: indicators.support,
+      resistance: indicators.resistance,
+    });
+    
+    res.json(result);
+  } catch (err) {
+    console.error('[v2/factors] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/v2/strategy - Use new strategy module
+app.post('/api/v2/strategy', async (req, res) => {
+  try {
+    const { rangeSec, intervalSec } = getTimeframeConfig((req.body as any).tf || 'm5');
+    const now = Math.floor(Date.now() / 1000);
+    const ticks = selectRange.all(now - rangeSec, now);
+    
+    if (ticks.length < 2) {
+      return res.json({ direction: 'neutral', entry: '观望', confidence: 0 });
+    }
+    
+    const candles = buildCandlesFromTicks(ticks, intervalSec);
+    const indicators = calculateAllIndicators(candles);
+    
+    // Get Binance data
+    const binanceTicks = selectBinanceRange.all(now - rangeSec, now);
+    const binanceLatest = selectBinanceLatest.get();
+    const fundingRate = binanceLatest ? (binanceLatest as any).funding_rate || 0 : 0;
+    
+    // Get Naver data
+    const naverLatest = selectLatest.get();
+    const naverPrice = naverLatest ? (naverLatest as any).price : 0;
+    const binancePrice = binanceLatest ? (binanceLatest as any).price : 0;
+    
+    const factors = calculateAllFactors({
+      candles,
+      fundingRate,
+      krwUsd: krwUsdRate,
+      prevKrwUsd: krwUsdRate,
+      naverPrice,
+      binancePrice,
+      fxRate: krwUsdRate,
+      rsi: indicators.latest.rsi,
+      macdHist: indicators.latest.macd.histogram,
+      support: indicators.support,
+      resistance: indicators.resistance,
+    });
+    
+    const strategy = generateStrategy({
+      factors: factors.factors,
+      composite: factors.composite,
+      indicators: indicators.latest,
+      candles,
+      support: indicators.support,
+      resistance: indicators.resistance,
+      naverPrice,
+      binancePrice,
+      fundingRate,
+    });
+    
+    res.json(strategy);
+  } catch (err) {
+    console.error('[v2/strategy] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/v2/backtest - Use new backtest module
+app.get('/api/v2/backtest', async (req, res) => {
+  try {
+    const params: BacktestParams = {
+      threshold: parseFloat((req.query as any).threshold) || 2,
+      holdBars: parseInt((req.query as any).holdBars) || 12,
+      leverage: parseInt((req.query as any).leverage) || 1,
+      stopLossPct: parseFloat((req.query as any).stopLoss) || 3,
+      takeProfitPct: parseFloat((req.query as any).takeProfit) || 5,
+    };
+    
+    const optimize = (req.query as any).optimize === 'true';
+    
+    // Get historical data
+    const now = Math.floor(Date.now() / 1000);
+    const rangeSec = 30 * 86400; // 30 days
+    const intervalSec = 300; // 5 minutes
+    
+    const ticks = selectRange.all(now - rangeSec, now);
+    const candles = buildCandlesFromTicks(ticks, intervalSec);
+    const binanceTicks = selectBinanceRange.all(now - rangeSec, now);
+    
+    if (candles.length < 100) {
+      return res.json({ error: 'Insufficient data for backtest' });
+    }
+    
+    let result: BacktestResult;
+    if (optimize) {
+      result = optimizeWeights(candles, binanceTicks, []);
+    } else {
+      result = backtestEngine(candles, binanceTicks, [], params);
+    }
+    
+    res.json(result);
+  } catch (err) {
+    console.error('[v2/backtest] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`\n  SK Hynix Chart Server (multi-source + SQLite)`);
