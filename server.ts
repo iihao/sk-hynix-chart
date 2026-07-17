@@ -369,43 +369,49 @@ function fetchText(url: string): Promise<string> {
   });
 }
 
-// ── Market hours ──
+// ── Market hours (Beijing time UTC+8) ──
 function isMarketOpen() {
-  const kst = new Date(Date.now() + 9 * 3600000);
-  const day = kst.getUTCDay();
+  const bj = new Date(Date.now() + 8 * 3600000);
+  const day = bj.getUTCDay();
   if (day === 0 || day === 6) return false;
-  const t = kst.getUTCHours() * 60 + kst.getUTCMinutes();
-  return t >= 540 && t <= 930; // 09:00 - 15:30 KST
+  const t = bj.getUTCHours() * 60 + bj.getUTCMinutes();
+  // Korean market: 09:00-15:30 KST = 08:00-14:30 Beijing
+  return t >= 480 && t <= 870;
 }
 
 function isPreMarket() {
-  const kst = new Date(Date.now() + 9 * 3600000);
-  const day = kst.getUTCDay();
+  const bj = new Date(Date.now() + 8 * 3600000);
+  const day = bj.getUTCDay();
   if (day === 0 || day === 6) return false;
-  const t = kst.getUTCHours() * 60 + kst.getUTCMinutes();
-  return t >= 480 && t < 540; // 08:00 - 09:00 KST
+  const t = bj.getUTCHours() * 60 + bj.getUTCMinutes();
+  // Pre-market: 08:00-09:00 KST = 07:00-08:00 Beijing
+  return t >= 420 && t < 480;
 }
 
 function isAfterHours() {
-  const kst = new Date(Date.now() + 9 * 3600000);
-  const day = kst.getUTCDay();
+  const bj = new Date(Date.now() + 8 * 3600000);
+  const day = bj.getUTCDay();
   if (day === 0 || day === 6) return false;
-  const t = kst.getUTCHours() * 60 + kst.getUTCMinutes();
-  return t > 930 && t <= 1080; // 15:30 - 18:00 KST
+  const t = bj.getUTCHours() * 60 + bj.getUTCMinutes();
+  // After-hours: 15:30-18:00 KST = 14:30-17:00 Beijing
+  return t > 870 && t <= 1020;
 }
 
 function getNextOpenTime() {
-  const kst = new Date(Date.now() + 9 * 3600000);
+  const bj = new Date(Date.now() + 8 * 3600000); // Beijing time (UTC+8)
   let daysToAdd = 0;
-  const day = kst.getUTCDay();
-  const t = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  const day = bj.getUTCDay();
+  const t = bj.getUTCHours() * 60 + bj.getUTCMinutes();
+  // Beijing 9:00-15:30 = KRX 9:00-15:30 (same as KST-1)
+  // Beijing 9:00 = KST 10:00, Beijing 15:30 = KST 16:30
+  // Korean market: 09:00-15:30 KST = 08:00-14:30 Beijing
   if (day === 0) daysToAdd = 1;
   else if (day === 6) daysToAdd = 2;
-  else if (t >= 930) daysToAdd = day === 5 ? 3 : 1;
-  const next = new Date(kst);
+  else if (t >= 840) daysToAdd = day === 5 ? 3 : 1; // After 14:00 Beijing
+  const next = new Date(bj);
   next.setUTCDate(next.getUTCDate() + daysToAdd);
-  next.setUTCHours(9, 0, 0, 0);
-  return next.toISOString().replace('T', ' ').slice(0, 16) + ' KST';
+  next.setUTCHours(8, 0, 0, 0); // 08:00 Beijing = 09:00 KST
+  return next.toISOString().replace('T', ' ').slice(0, 16) + ' 北京时间';
 }
 
 function metaCommon() {
