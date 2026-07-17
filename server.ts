@@ -34,6 +34,15 @@ import {
   TickStats,
 } from './types';
 
+// ══════════════════════════════════════════
+//  Project Root & Data Directory
+// ══════════════════════════════════════════
+const PROJECT_ROOT = process.cwd();
+const DATA_DIR = process.env.DATA_DIR || PROJECT_ROOT;
+
+console.log(`[config] PROJECT_ROOT: ${PROJECT_ROOT}`);
+console.log(`[config] DATA_DIR: ${DATA_DIR}`);
+
 const app = express();
 const PORT: number = Number(process.env.PORT || 3456);
 const SYMBOL: string = '000660.KS';
@@ -142,12 +151,14 @@ fetchExchangeRate();
 setInterval(fetchExchangeRate, 3600000);
 
 let clients = [];
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(PROJECT_ROOT, 'public')));
 
 // ══════════════════════════════════════════
 //  SQLite: tick storage
 // ══════════════════════════════════════════
-const db = new Database(path.join(__dirname, 'ticks.db'));
+const DB_PATH = path.join(DATA_DIR, 'ticks.db');
+console.log(`[config] Database path: ${DB_PATH}`);
+const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.exec(`
   CREATE TABLE IF NOT EXISTS ticks (

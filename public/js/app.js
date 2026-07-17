@@ -235,6 +235,163 @@ function connectSSE() {
   };
 }
 
+/* ── Indicators ── */
+async function updateIndicators() {
+  try {
+    const res = await fetch('/api/indicators');
+    if (!res.ok) return;
+    const data = await res.json();
+    
+    // Update header indicators
+    const rsiEl = $('indRsi');
+    const macdEl = $('indMacd');
+    const volEl = $('indVol');
+    
+    if (rsiEl && data.rsi != null) {
+      rsiEl.textContent = data.rsi.toFixed(1);
+      rsiEl.className = 'ind-stat-val ' + (data.rsi > 70 ? 'bearish' : data.rsi < 30 ? 'bullish' : 'neutral');
+    }
+    if (macdEl && data.macd) {
+      const macdVal = data.macd.histogram;
+      macdEl.textContent = macdVal > 0 ? '+' + macdVal.toFixed(2) : macdVal.toFixed(2);
+      macdEl.className = 'ind-stat-val ' + (macdVal > 0 ? 'bullish' : 'bearish');
+    }
+    if (volEl && data.volumeRatio != null) {
+      volEl.textContent = data.volumeRatio.toFixed(2);
+      volEl.className = 'ind-stat-val ' + (data.volumeRatio > 1.5 ? 'bullish' : data.volumeRatio < 0.5 ? 'bearish' : 'neutral');
+    }
+  } catch (e) {
+    console.error('Failed to fetch indicators:', e);
+  }
+}
+
+/* ── Factors ── */
+async function updateFactors() {
+  try {
+    const res = await fetch('/api/factors');
+    if (!res.ok) return;
+    const data = await res.json();
+    
+    // Update factor tags
+    const tagsEl = $('factorTags');
+    if (tagsEl && data.factors) {
+      tagsEl.innerHTML = data.factors.map(f => {
+        const cls = f.score > 0 ? 'bull' : f.score < 0 ? 'bear' : 'neut';
+        return `<span class="ftag ${cls}"><span class="ftag-score">${f.score > 0 ? '+' : ''}${f.score.toFixed(1)}</span><span class="ftag-name">${f.label}</span></span>`;
+      }).join('');
+    }
+    
+    // Update direction
+    if (data.direction) {
+      const dirText = $('dirText');
+      const dirScore = $('dirScore');
+      const dirConf = $('dirConf');
+      const dirReason = $('dirReason');
+      
+      if (dirText) {
+        dirText.textContent = data.direction.direction;
+        dirText.className = 'dir-text ' + data.direction.direction.toLowerCase();
+      }
+      if (dirScore) dirScore.textContent = data.direction.score.toFixed(1);
+      if (dirConf) dirConf.textContent = data.direction.confidence + '%';
+      if (dirReason) dirReason.textContent = data.direction.reason;
+    }
+  } catch (e) {
+    console.error('Failed to fetch factors:', e);
+  }
+}
+
+/* ── News ── */
+async function updateNews() {
+  try {
+    const res = await fetch('/api/news');
+    if (!res.ok) return;
+    const data = await res.json();
+    
+    // Update market context area
+    const contextEl = $('marketContextArea');
+    if (contextEl && data.headlines) {
+      contextEl.innerHTML = data.headlines.slice(0, 5).map(h => 
+        `<div style="font-size:10px;color:var(--text);padding:3px 0;border-bottom:1px solid var(--border)">${h}</div>`
+      ).join('');
+    }
+  } catch (e) {
+    console.error('Failed to fetch news:', e);
+  }
+}
+
+/* ── Backtest ── */
+async function runBacktest(optimize = false) {
+  const threshold = $('btThreshold')?.value || 2.0;
+  const hold = $('btHold')?.value || 12;
+  const sl = $('btSL')?.value || 3.0;
+  const tp = $('btTP')?.value || 5.0;
+  
+  const btn = optimize ? $('btOptBtn') : $('btRunBtn');
+  if (btn) {
+    btn.textContent = '运行中...';
+    btn.disabled = true;
+  }
+  
+  try {
+    const params = new URLSearchParams({
+      threshold, hold, stopLoss: sl, takeProfit: tp,
+      optimize: optimize ? 'true' : 'false'
+    });
+    const res = await fetch('/api/backtest?' + params);
+    if (!res.ok) throw new Error('Backtest failed');
+    const data = await res.json();
+    
+    // Update metrics
+    const metricsEl = $('btMetricsArea');
+    if (metricsEl && data.metrics) {
+      metricsEl.innerHTML = `
+        <div class="bt-metrics">
+          <div class="bt-metric"><div class="bt-metric-label">胜率</div><div class="bt-metric-val">${(data.metrics.winRate * 100).toFixed(1)}%</div></div>
+          <div class="bt-metric"><div class="bt-metric-label">收益</div><div class="bt-metric-val">${data.metrics.totalReturn.toFixed(2)}%</div></div>
+          <div class="bt-metric"><div class="bt-metric-label">夏普</div><div class="bt-metric-val">${data.metrics.sharpe.toFixed(2)}</div></div>
+        </div>
+      `;
+    }
+    
+    // Update weights if optimized
+    if (optimize && data.weights) {
+      const weightsEl = $('btWeightsArea');
+      if (weightsEl) {
+        weightsEl.innerHTML = `
+          <div style="margin-top:8px;font-size:10px;color:var(--text)">优化权重:</div>
+          ${Object.entries(data.weights).map(([k, v]) => 
+            `<div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0">
+              <span>${k}</span><span>${(v * 100).toFixed(1)}%</span>
+            </div>`
+          ).join('')}
+        `;
+      }
+    }
+    
+    // Update trades
+    const tradesEl = $('btTradesArea');
+    if (tradesEl && data.trades) {
+      tradesEl.innerHTML = `
+        <div style="margin-top:8px;font-size:10px;color:var(--text)">最近交易:</div>
+        ${data.trades.slice(0, 5).map(t => 
+          `<div style="font-size:10px;padding:2px 0;color:${t.pnl >= 0 ? 'var(--green)' : 'var(--red)'}">
+            ${t.direction} ${t.entry.toFixed(2)} → ${t.exit.toFixed(2)} (${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}%)
+          </div>`
+        ).join('')}
+      `;
+    }
+  } catch (e) {
+    console.error('Backtest error:', e);
+    alert('回测失败: ' + e.message);
+  } finally {
+    if (btn) {
+      btn.textContent = optimize ? '优化' : '回测';
+      btn.disabled = false;
+    }
+  }
+}
+
 /* ── Keyboard Shortcuts ── */
 document.addEventListener('keydown', (e) => {
   if (e.key === '`' && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -257,6 +414,14 @@ window.addEventListener('DOMContentLoaded', () => {
   connectSSE();
   setInterval(fetchData, 10000);
   fetchBinancePrice();
+  
+  // Fetch indicators, factors, and news
+  updateIndicators();
+  updateFactors();
+  updateNews();
+  setInterval(updateIndicators, 30000);
+  setInterval(updateFactors, 60000);
+  setInterval(updateNews, 300000);
 });
 
 /* ── Expose to global scope for onclick handlers ── */
@@ -272,3 +437,7 @@ window.calculatePnl = calculatePnl;
 window.switchTF = switchTF;
 window.switchCurrency = switchCurrency;
 window.switchSource = switchSource;
+window.runBacktest = runBacktest;
+window.updateIndicators = updateIndicators;
+window.updateFactors = updateFactors;
+window.updateNews = updateNews;
