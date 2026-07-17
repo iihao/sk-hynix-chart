@@ -1,8 +1,10 @@
 const BULLISH_TYPES = new Set([
   'buy', 'golden_cross', 'rsi_oversold', 'macd_golden', 'boll_breakdown',
+  'ma_golden', 'uptrend',
 ]);
 const BEARISH_TYPES = new Set([
   'sell', 'death_cross', 'rsi_overbought', 'macd_death', 'boll_breakup',
+  'ma_death', 'downtrend',
 ]);
 
 function clear(element) {
@@ -38,6 +40,17 @@ export function renderSignals(document, element, signals) {
     row.className = `sig-row ${tone}`;
     appendText(document, row, 'span', 'sig-dot', '');
     appendText(document, row, 'span', 'sig-label', signal.label || '未命名信号');
+    
+    // Show trigger time if available
+    if (signal.time) {
+      const time = new Date(signal.time * 1000 + 8 * 3600000); // Beijing time
+      const hh = String(time.getUTCHours()).padStart(2, '0');
+      const mm = String(time.getUTCMinutes()).padStart(2, '0');
+      const MM = String(time.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(time.getUTCDate()).padStart(2, '0');
+      appendText(document, row, 'span', 'sig-time', `${MM}/${dd} ${hh}:${mm}`);
+    }
+    
     appendText(document, row, 'span', 'sig-strength', '*'.repeat(Math.max(1, Number(signal.strength) || 1)));
     element.appendChild(row);
   }

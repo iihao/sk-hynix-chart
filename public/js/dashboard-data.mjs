@@ -31,6 +31,11 @@ export function normalizeIndicators(payload) {
     resistance: Array.isArray(data.resistance) ? data.resistance : [],
     levels: data.levels && typeof data.levels === 'object' ? data.levels : null,
     tf: normalizeDashboardTf(data.tf),
+    // Pass through indicator arrays for chart overlay
+    ma5: Array.isArray(data.ma5) ? data.ma5 : [],
+    ma20: Array.isArray(data.ma20) ? data.ma20 : [],
+    bollinger: data.bollinger && typeof data.bollinger === 'object' ? data.bollinger : null,
+    times: Array.isArray(data.times) ? data.times : [],
   };
 }
 
