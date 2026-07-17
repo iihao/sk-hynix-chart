@@ -200,6 +200,47 @@
 .signal-card.short { border-left-color: var(--red); }
 .signal-card.risk { border-left-color: var(--yellow); }
 .signal-card.opportunity { border-left-color: var(--text-bright); }
+
+/* ── Signal Rows (indicators) ── */
+.sig-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  margin-bottom: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid transparent;
+}
+.sig-row.bull { border-left-color: var(--green); }
+.sig-row.bear { border-left-color: var(--red); }
+.sig-row.neut { border-left-color: var(--border); }
+.sig-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.sig-row.bull .sig-dot { background: var(--green); box-shadow: 0 0 4px var(--green); }
+.sig-row.bear .sig-dot { background: var(--red); box-shadow: 0 0 4px var(--red); }
+.sig-row.neut .sig-dot { background: var(--text); }
+.sig-label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-bright);
+}
+.sig-strength {
+  font-size: 9px;
+  color: var(--yellow);
+  letter-spacing: 1px;
+}
+.sig-empty {
+  font-size: 11px;
+  color: #474d57;
+  text-align: center;
+  padding: 12px 0;
+}
 .signal-card-header { display: flex; align-items: center; gap: 6px; }
 .signal-icon {
   width: 16px;

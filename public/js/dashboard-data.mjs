@@ -20,6 +20,7 @@ export function normalizeIndicators(payload) {
     rsi: asNumber(latest.rsi, 'latest.rsi'),
     macdHist: asNumber(latest.macdHist, 'latest.macdHist'),
     volRatio: asNumber(latest.volRatio, 'latest.volRatio'),
+    signals: Array.isArray(data.signals) ? data.signals : [],
   };
 }
 

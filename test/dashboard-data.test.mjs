@@ -13,7 +13,7 @@ test('normalizes indicator latest values', () => {
     latest: { rsi: 45, macdHist: 1.2, volRatio: 1.1 },
   });
 
-  assert.deepEqual(result, { rsi: 45, macdHist: 1.2, volRatio: 1.1 });
+  assert.deepEqual(result, { rsi: 45, macdHist: 1.2, volRatio: 1.1, signals: [] });
 });
 
 test('normalizes factor direction for display', () => {

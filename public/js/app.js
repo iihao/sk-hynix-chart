@@ -261,7 +261,7 @@ async function updateIndicators() {
     const res = await fetch('/api/indicators');
     if (!res.ok) return;
     const data = normalizeIndicators(await res.json());
-    
+
     const rsiEl = $('indRsi');
     const macdEl = $('indMacd');
     const volEl = $('indVol');
@@ -281,8 +281,43 @@ async function updateIndicators() {
       volEl.textContent = volRatio.toFixed(2);
       volEl.className = 'ind-stat-val ' + (volRatio > 1.5 ? 'bullish' : volRatio < 0.5 ? 'bearish' : 'neutral');
     }
+
+    renderSignals(data.signals);
   } catch (e) {
     console.error('Failed to fetch indicators:', e);
+  }
+}
+
+function renderSignals(signals) {
+  const el = $('signalsContainer');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!signals || signals.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'sig-empty';
+    empty.textContent = '暂无信号';
+    el.appendChild(empty);
+    return;
+  }
+  for (const s of signals) {
+    const row = document.createElement('div');
+    row.className = 'sig-row ' + (s.type === 'buy' || s.type === 'golden_cross' || s.type === 'rsi_oversold' || s.type === 'macd_golden' || s.type === 'boll_breakdown' ? 'bull' : s.type === 'sell' || s.type === 'death_cross' || s.type === 'rsi_overbought' || s.type === 'macd_death' || s.type === 'boll_breakup' ? 'bear' : 'neut');
+
+    const dot = document.createElement('span');
+    dot.className = 'sig-dot';
+
+    const label = document.createElement('span');
+    label.className = 'sig-label';
+    label.textContent = s.label;
+
+    const strength = document.createElement('span');
+    strength.className = 'sig-strength';
+    strength.textContent = '★'.repeat(s.strength || 1);
+
+    row.appendChild(dot);
+    row.appendChild(label);
+    row.appendChild(strength);
+    el.appendChild(row);
   }
 }
 

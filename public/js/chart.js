@@ -183,9 +183,19 @@ export function pushData(tf, data, bnData) {
     c.bnSeries.applyOptions({ visible: false });
   }
 
-  c.chart.timeScale().fitContent();
   const ld = $('load-' + tf);
   if (ld) ld.classList.add('hide');
+
+  const VISIBLE_BARS = { m1: 120, m5: 100, m15: 80, h1: 60 };
+  const allData = data?.candles || [];
+  const barCount = VISIBLE_BARS[tf] || 100;
+  if (allData.length > barCount) {
+    const from = allData[allData.length - barCount].time;
+    const to = allData[allData.length - 1].time;
+    c.chart.timeScale().setVisibleRange({ from, to });
+  } else {
+    c.chart.timeScale().fitContent();
+  }
 }
 
 /* ── Tab Switching ── */

@@ -85,6 +85,23 @@ body {
   transition: color 0.4s;
 }
 
+.ind-stats { gap: 14px; }
+.ind-stat { display: flex; flex-direction: column; gap: 1px; }
+.ind-stat-label {
+  font-size: 9px;
+  color: var(--text);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.ind-stat-val {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+.ind-stat-val.bullish { color: var(--green); }
+.ind-stat-val.bearish { color: var(--red); }
+.ind-stat-val.neutral { color: var(--text); }
+
 .header-right { display: flex; align-items: center; gap: 14px; }
 .market-status { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; transition: all 0.4s; }
