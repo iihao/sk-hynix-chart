@@ -83,7 +83,9 @@ export function calcRSI(closes: number[], period: number = 14): number[] {
     } else {
       const avgGain = gains.slice(i - period, i).reduce((a, b) => a + b, 0) / period;
       const avgLoss = losses.slice(i - period, i).reduce((a, b) => a + b, 0) / period;
-      if (avgLoss === 0) {
+      if (avgGain === 0 && avgLoss === 0) {
+        result.push(50); // No price change = neutral
+      } else if (avgLoss === 0) {
         result.push(100);
       } else {
         const rs = avgGain / avgLoss;

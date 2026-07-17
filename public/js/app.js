@@ -493,10 +493,29 @@ window.addEventListener('beforeunload', () => {
   stopSecondarySchedules();
 });
 
+/* ── Wide Mode Toggle ── */
+let wideMode = false;
+function toggleWideMode() {
+  wideMode = !wideMode;
+  document.body.classList.toggle('wide-mode', wideMode);
+  // Resize charts after transition
+  setTimeout(() => {
+    Object.values(state.charts).forEach(c => {
+      if (c && c.chart) {
+        const w = c.chart.options().width;
+        const h = c.chart.options().height;
+        c.chart.applyOptions({ width: w - 1, height: h });
+        c.chart.applyOptions({ width: w, height: h });
+      }
+    });
+  }, 350);
+}
+
 /* ── Expose to global scope for onclick handlers ── */
 window.toggleSignalPanel = toggleSignalPanel;
 window.toggleCollapsible = toggleCollapsible;
 window.toggleCalculator = toggleCalculator;
+window.toggleWideMode = toggleWideMode;
 window.fpSetDirection = fpSetDirection;
 window.fpUseCurrentPrice = fpUseCurrentPrice;
 window.fpCalculatePnl = fpCalculatePnl;
