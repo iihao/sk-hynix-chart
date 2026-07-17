@@ -19,7 +19,9 @@ export function canRecordSpotTick(input: {
   const session = getKoreaSession(input.nowMs);
   if (session === 'regular') return input.marketOpen;
   if (session === 'after') return input.hasFreshAfterHours;
-  return false;
+  // During closed hours, allow recording if we have any price data
+  // This enables using proxy prices (e.g., Binance) to keep K-lines updating
+  return true;
 }
 
 export function classifyObservationAge(input: {

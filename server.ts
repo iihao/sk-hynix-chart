@@ -509,7 +509,7 @@ async function naverBasic() {
 // the field disappears. We preserve the last known price until the next market open.
 let lastAfterHours = null;
 
-// Record a tick to SQLite (only when market is open or after-hours session active)
+// Record a tick to SQLite (uses Binance price as proxy when market closed)
 async function recordTick() {
   try {
     const basic = await naverBasic();
@@ -521,29 +521,46 @@ async function recordTick() {
       lastAfterHours = null;
     }
 
-    // Update cache when fresh after-hours data arrives
-    if (freshAfterHours) {
+    // Only update cache when after-hours market is actually active
+    if (freshAfterHours && freshAfterHours.status !== 'CLOSE') {
       lastAfterHours = freshAfterHours;
     }
 
     if (!canRecordSpotTick({
       nowMs,
       marketOpen: basic.marketOpen,
-      hasFreshAfterHours: Boolean(freshAfterHours),
+      hasFreshAfterHours: Boolean(freshAfterHours && freshAfterHours.status !== 'CLOSE'),
     })) {
       return null;
     }
+    
     const ts = Math.floor(nowMs / 1000);
-    const ahPrice = freshAfterHours?.price || null;
-    const ahSession = freshAfterHours?.session || null;
-    insertTick.run(ts, (basic as any).price, basic.prevClose, basic.marketOpen ? 1 : 0, ahPrice, ahSession);
+    let price = (basic as any).price;
+    let ahPrice = freshAfterHours?.price || null;
+    let ahSession = freshAfterHours?.session || null;
+    let label = basic.marketOpen ? 'regular' : (ahPrice ? 'after-hours' : 'closed');
+    
+    // When market is closed and after-hours is also closed, use Binance price as proxy
+    if (!basic.marketOpen && (!ahPrice || freshAfterHours?.status === 'CLOSE')) {
+      const bnLatest = selectBinanceLatest.get() as any;
+      if (bnLatest?.price && krwUsdRate > 0) {
+        // Convert Binance USD price to KRW as proxy
+        const proxyPrice = Math.round(bnLatest.price * krwUsdRate);
+        if (proxyPrice > 0) {
+          ahPrice = proxyPrice;
+          ahSession = 'BINANCE_PROXY';
+          label = 'proxy';
+        }
+      }
+    }
+    
+    insertTick.run(ts, price, basic.prevClose, basic.marketOpen ? 1 : 0, ahPrice, ahSession);
     markSourceHealthy('naver', {
       updatedAt: ts * 1000,
-      detail: `₩${(ahPrice || (basic as any).price).toLocaleString()}`,
+      detail: `₩${(ahPrice || price).toLocaleString()}`,
     });
     const cnt = (countTicks.get() as { cnt: number }).cnt;
-    const label = basic.marketOpen ? 'regular' : (ahPrice ? 'after-hours' : 'closed');
-    const displayPrice = ahPrice || (basic as any).price;
+    const displayPrice = ahPrice || price;
     console.log(`[tick] ${new Date().toLocaleTimeString()} ${label} price=${displayPrice} (total: ${cnt})`);
     return basic;
   } catch (err) {
@@ -613,19 +630,12 @@ let binanceCircuitResetAt = 0;
 const BINANCE_CIRCUIT_COOLDOWN = 300000; // 5 minutes
 
 function isBinanceCircuitOpen(): boolean {
-  if (!binanceCircuitOpen) return false;
-  if (Date.now() > binanceCircuitResetAt) {
-    binanceCircuitOpen = false;
-    console.log('[binance] circuit breaker reset, retrying API');
-    return false;
-  }
-  return true;
+  // Circuit breaker disabled - always try API
+  return false;
 }
 
 function tripBinanceCircuit(): void {
-  binanceCircuitOpen = true;
-  binanceCircuitResetAt = Date.now() + BINANCE_CIRCUIT_COOLDOWN;
-  console.log('[binance] circuit breaker tripped, using local data for 5 minutes');
+  // Circuit breaker disabled - do nothing
 }
 
 // Binance local storage table
