@@ -58,7 +58,6 @@ import {
   BacktestParams,
   BacktestResult,
 } from './src/domain/backtest';
-
 // ══════════════════════════════════════════
 //  Project Root & Data Directory
 // ══════════════════════════════════════════
@@ -429,7 +428,7 @@ async function recordTick() {
       updatedAt: ts * 1000,
       detail: `₩${(ahPrice || (basic as any).price).toLocaleString()}`,
     });
-    const cnt = countTicks.get().cnt;
+    const cnt = (countTicks.get() as { cnt: number }).cnt;
     const label = basic.marketOpen ? 'regular' : (ahPrice ? 'after-hours' : 'closed');
     const displayPrice = ahPrice || (basic as any).price;
     console.log(`[tick] ${new Date().toLocaleTimeString()} ${label} price=${displayPrice} (total: ${cnt})`);
@@ -549,7 +548,7 @@ async function recordBinanceTick() {
       updatedAt: ts * 1000,
       detail: `$${Math.round((meta as any).price * 100) / 100}`,
     });
-    const cnt = countBinanceTicks.get().cnt;
+    const cnt = (countBinanceTicks.get() as { cnt: number }).cnt;
     console.log(`[binance-tick] ${new Date().toLocaleTimeString()} price=$${(meta as any).price} (total: ${cnt})`);
     return meta;
   } catch (err) {
@@ -733,7 +732,7 @@ async function fetchBinanceSentiment() {
       updatedAt: (latest as any).ts * 1000,
       detail: `${merged.length}h`,
     });
-    const cnt = countSentimentRows.get().cnt;
+    const cnt = (countSentimentRows.get() as { cnt: number }).cnt;
     console.log(`[sentiment] rows=${merged.length} latest LS=${latest.ls_ratio} Taker=${latest.taker_ratio} OI=${latest.open_interest} Top=${(latest as any).top_ls_ratio} (total: ${cnt})`);
   } catch (err) {
     console.error('[sentiment] fetch error:', err.message);
@@ -845,7 +844,7 @@ app.get('/api/data', async (req, res) => {
 
 // ── API: sources ──
 app.get('/api/sources', (req, res) => {
-  const cnt = countTicks.get().cnt;
+  const cnt = (countTicks.get() as { cnt: number }).cnt;
   res.json([
     { id: 'yahoo', name: 'Yahoo Finance', desc: 'K线完整，延迟~20min', status: 'ok' },
     { id: 'naver', name: 'Naver Finance', desc: `实时报价，本地${cnt}条tick`, status: 'ok' },
@@ -854,9 +853,9 @@ app.get('/api/sources', (req, res) => {
 
 // ── API: tick stats ──
 app.get('/api/ticks', (req, res) => {
-  const cnt = countTicks.get().cnt;
+  const cnt = (countTicks.get() as { cnt: number }).cnt;
   const latest = selectLatest.get();
-  const bnCnt = countBinanceTicks.get().cnt;
+  const bnCnt = (countBinanceTicks.get() as { cnt: number }).cnt;
   const bnLatest = selectBinanceLatest.get();
   res.json({
     naver: { count: cnt, latest: latest || null },
@@ -1507,7 +1506,18 @@ function factorWhaleActivity() {
 const NEWS_POSITIVE = ['HBM', 'hbm', 'AI', 'growth', 'profit', 'surge', 'soar', 'rally', 'demand', 'upgrade', 'buy', 'overweight', 'double', 'leader', 'market share', 'triple-digit', 'strong', 'record', 'boom', 'nvidia'];
 const NEWS_NEGATIVE = ['crash', 'tumble', 'plunge', 'drop', 'fall', 'sink', 'sell-off', 'profit-taking', 'weak', 'downgrade', 'sell', 'underweight', 'risk', 'peak', 'unravel', 'decline', 'loss', 'cut', 'slump', 'tumbles'];
 
-let newsSentiment = { score: 0, headlines: [], updatedAt: 0 };
+interface NewsSentiment {
+  score: number;
+  headlines: string[];
+  updatedAt: number;
+  positive?: number;
+  negative?: number;
+  fetchedAt?: number;
+  recentCount?: number;
+  source?: string;
+}
+
+let newsSentiment: NewsSentiment = { score: 0, headlines: [], updatedAt: 0 };
 
 async function fetchNewsSentiment() {
   // Try Bing News RSS first (reliable, English headlines)
@@ -1625,7 +1635,9 @@ function calcFactorConsensus(factors) {
 }
 
 function calcScoreConsensus(scores) {
-  const values = Object.values(scores || {}).filter(value => Number.isFinite(value));
+  const values = Object.values(scores || {}).filter(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value),
+  );
   if (!values.length) return 0;
   const bullish = values.filter(value => value > 2).length;
   const bearish = values.filter(value => value < -2).length;
@@ -1661,168 +1673,6 @@ function applyRiskToStrategy(strategy, risk, context = {}) {
 
   if (next.direction !== '观望') (next as any).leverage = risk.leverageCap;
   return next;
-}
-
-function generateStrategy(factors, composite, indicators, candles, sr, naverLatest, binanceLatest, context = {}) {
-  const strategy = { direction: '', entry: '', stopLoss: '', takeProfit: '', riskLevel: '', reasoning: [], warnings: [], confidence: 0, evidence: { for: [], against: [], neutral: [] }, riskReward: '' };
-
-  if (!candles || candles.length < 5) {
-    strategy.direction = '观望';
-    strategy.reasoning.push('数据不足，无法形成有效策略');
-    return strategy;
-  }
-
-  // Use Binance contract price as the reference (not Naver stock price)
-  const price = binanceLatest && (binanceLatest as any).price ? (binanceLatest as any).price : candles[candles.length - 1].close;
-  const th = (activeParams as any).entryThreshold * ((context as any).regime?.entryThresholdMultiplier || 1);
-  (strategy as any).regimeLabel = (context as any).regime?.label || '未识别';
-  (strategy as any).regimeReason = (context as any).regime?.reason || '';
-  (strategy as any).entryThresholdUsed = th;
-
-  // ── Factor Evidence Chain ──
-  for (const f of factors) {
-    const w = activeWeights[f.category] || f.weight;
-    const weightedScore = f.score * w;
-    if (weightedScore > 1) {
-      strategy.evidence.for.push({ label: f.label, score: f.score, detail: f.detail });
-    } else if (weightedScore < -1) {
-      strategy.evidence.against.push({ label: f.label, score: f.score, detail: f.detail });
-    } else {
-      strategy.evidence.neutral.push({ label: f.label, score: f.score });
-    }
-  }
-
-  // ── Confidence Score (0-100) ──
-  const forCount = strategy.evidence.for.length;
-  const againstCount = strategy.evidence.against.length;
-  const totalFactors = factors.length || 1;
-  const consensus = Math.abs(forCount - againstCount) / totalFactors;
-  const magnitude = Math.abs(composite) / 10;
-  strategy.confidence = Math.round(Math.min(95, (consensus * 60 + magnitude * 40)));
-
-  // ── Direction ──
-  if (composite > th * 2) {
-    strategy.direction = '做多';
-    strategy.riskLevel = composite > th * 3 ? '低' : '中';
-  } else if (composite < -th * 2) {
-    strategy.direction = '做空';
-    strategy.riskLevel = composite < -th * 3 ? '低' : '中';
-  } else if (composite > th) {
-    strategy.direction = '轻仓做多';
-    strategy.riskLevel = '中高';
-  } else if (composite < -th) {
-    strategy.direction = '轻仓做空';
-    strategy.riskLevel = '中高';
-  } else {
-    strategy.direction = '观望';
-    strategy.riskLevel = '低';
-    strategy.confidence = Math.max(10, 50 - Math.abs(composite) * 10);
-  }
-
-  // ── Entry / Stop / TakeProfit (only when direction is actionable) ──
-  if (strategy.direction !== '观望') {
-    // Entry price
-    strategy.entry = price;
-    if (strategy.direction.includes('做多') && indicators && indicators.rsi > 65) {
-      strategy.entry = Math.round(price * 0.99);
-      (strategy as any).entryNote = '回踩入场';
-    } else if (strategy.direction.includes('做空') && indicators && indicators.rsi < 35) {
-      strategy.entry = Math.round(price * 1.01);
-      (strategy as any).entryNote = '反弹入场';
-    }
-
-    // Calculate ATR for fallback (minimum 0.5% of price to ensure reasonable levels)
-    const atrKRW = candles.slice(-14).reduce((s, c, i, a) => {
-      if (i === 0) return 0;
-      const tr = Math.max(c.high - c.low, Math.abs(c.high - a[i-1].close), Math.abs(c.low - a[i-1].close));
-      return s + tr;
-    }, 0) / 13;
-    const minAtrUsd = price * 0.005; // 0.5% of price as minimum
-    const atrUsd = Math.max(atrKRW / krwUsdRate, minAtrUsd);
-
-    // Stop Loss — prefer S/R, fallback to ATR
-    let slCandidate = null;
-    if (strategy.direction.includes('做多') && sr?.support?.length > 0) {
-      slCandidate = Math.round(sr.support[0].price / krwUsdRate * 0.995);
-    } else if (strategy.direction.includes('做空') && sr?.resistance?.length > 0) {
-      slCandidate = Math.round(sr.resistance[0].price / krwUsdRate * 1.005);
-    }
-    const slAtr = strategy.direction.includes('做多')
-      ? Math.round(price - atrUsd * 1.5)
-      : Math.round(price + atrUsd * 1.5);
-    // Use S/R only if risk is reasonable (<= 5% from entry)
-    const slRisk = Math.abs((slCandidate || slAtr) - price) / price * 100;
-    strategy.stopLoss = (slCandidate && slRisk <= 5) ? slCandidate : slAtr;
-
-    // Take Profit — prefer S/R, fallback to ATR
-    let tpCandidate = null;
-    if (strategy.direction.includes('做多') && sr?.resistance?.length > 0) {
-      tpCandidate = Math.round(sr.resistance[0].price / krwUsdRate * 0.995);
-    } else if (strategy.direction.includes('做空') && sr?.support?.length > 0) {
-      tpCandidate = Math.round(sr.support[0].price / krwUsdRate * 1.005);
-    }
-    const tpAtr = strategy.direction.includes('做多')
-      ? Math.round(price + atrUsd * 2.5)
-      : Math.round(price - atrUsd * 2.5);
-    // Use S/R only if reward is reasonable (>= 1% from entry)
-    const tpReward = Math.abs((tpCandidate || tpAtr) - price) / price * 100;
-    strategy.takeProfit = (tpCandidate && tpReward >= 1) ? tpCandidate : tpAtr;
-
-    // Risk/Reward Ratio
-    if (strategy.stopLoss && strategy.takeProfit) {
-      const risk = Math.abs(strategy.entry - strategy.stopLoss);
-      const reward = Math.abs(strategy.takeProfit - strategy.entry);
-      if (risk > 0) {
-        const rr = Math.round(reward / risk * 10) / 10;
-        strategy.riskReward = `1:${rr}`;
-      }
-    }
-  }
-
-  if ((context as any).marketContext?.event?.status === 'watch' || (context as any).marketContext?.event?.status === 'cooldown') {
-    strategy.warnings.push((context as any).marketContext.event.message);
-  }
-  if ((context as any).basis?.ready && Math.abs((context as any).basis.zScore) >= 2) {
-    strategy.warnings.push(`${(context as any).basis.label}，避免把映射误差当趋势`);
-  }
-
-  // ── Reasoning (top contributing factors) ──
-  const sorted = [...factors].sort((a, b) => Math.abs(b.score * (activeWeights[b.category] || b.weight)) - Math.abs(a.score * (activeWeights[a.category] || a.weight)));
-  for (const f of sorted.slice(0, 5)) {
-    const w = activeWeights[f.category] || f.weight;
-    if (Math.abs(f.score * w) > 1) {
-      const dir = f.score > 0 ? '利多' : '利空';
-      strategy.reasoning.push(`${f.label} ${dir} (${f.score > 0 ? '+' : ''}${f.score.toFixed(1)}) — ${f.detail}`);
-    }
-  }
-
-  // ── Warnings ──
-  if (indicators) {
-    if (indicators.rsi > 75) strategy.warnings.push('RSI 严重超买，短期回调风险高');
-    else if (indicators.rsi > 70) strategy.warnings.push('RSI 超买区间，注意回调');
-    if (indicators.rsi < 25) strategy.warnings.push('RSI 严重超卖，短期反弹概率大');
-    else if (indicators.rsi < 30) strategy.warnings.push('RSI 超卖区间，关注反弹');
-  }
-
-  const premium = factors.find(f => f.category === 'premium');
-  if (premium && premium.score > 5) strategy.warnings.push('合约溢价过高，注意收敛风险');
-
-  const vol = factors.find(f => f.category === 'volatility');
-  if (vol && vol.score < -4) strategy.warnings.push('波动率偏高，建议缩小仓位');
-
-  if (composite > 3 && indicators && indicators.rsi > 70) {
-    strategy.warnings.push('虽然整体偏多但 RSI 已超买，不宜追高');
-  }
-  if (composite < -3 && indicators && indicators.rsi < 30) {
-    strategy.warnings.push('虽然整体偏空但 RSI 已超卖，不宜追空');
-  }
-
-  // ── Leverage suggestion ──
-  if (strategy.riskLevel === '低') (strategy as any).leverage = '5-10x';
-  else if (strategy.riskLevel === '中') (strategy as any).leverage = '3-5x';
-  else (strategy as any).leverage = '1-3x';
-
-  return strategy;
 }
 
 // News sentiment endpoint
@@ -1933,12 +1783,12 @@ async function autoOptimize() {
 
     for (const th of thresholds) {
       for (const hold of holdOptions) {
-        const result = backtestEngine(trainCandles, trainBinance, trainSentiment, {
+        const result = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, {
           entryThreshold: th, holdBars: hold, leverage: 5,
           weights: { ...DEFAULT_WEIGHTS }, useSR: true
         });
         if (result.metrics && result.metrics.totalTrades >= 3) {
-          const score = result.metrics.sharpeRatio * Math.sqrt(result.metrics.totalTrades) *
+          const score = result.metrics?.sharpe || 0 * Math.sqrt(result.metrics.totalTrades) *
             (result.metrics.winRate / 100) - result.metrics.maxDrawdown / 10;
           if (bestScore == null || score > bestScore) {
             bestScore = score;
@@ -1960,11 +1810,11 @@ async function autoOptimize() {
       let bestFactorScore = -Infinity;
       for (const w of weightOptions) {
         const testWeights = { ...DEFAULT_WEIGHTS, [key]: w };
-        const result = backtestEngine(trainCandles, trainBinance, trainSentiment, {
+        const result = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, {
           ...bestParams, leverage: 5, weights: testWeights, useSR: true
         });
         if (result.metrics && result.metrics.totalTrades >= 3) {
-          const score = result.metrics.sharpeRatio * Math.sqrt(result.metrics.totalTrades) *
+          const score = result.metrics?.sharpe || 0 * Math.sqrt(result.metrics.totalTrades) *
             (result.metrics.winRate / 100) - result.metrics.maxDrawdown / 10;
           if (score > bestFactorScore) {
             bestFactorScore = score;
@@ -1976,11 +1826,11 @@ async function autoOptimize() {
     }
 
     // Validate on training set
-    const trainResult = backtestEngine(trainCandles, trainBinance, trainSentiment, {
+    const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, {
       ...bestParams, leverage: 5, weights: bestWeights, useSR: true
     });
     // Validate on test set (out-of-sample)
-    const testResult = backtestEngine(testCandles, testBinance, testSentiment, {
+    const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, {
       ...bestParams, leverage: 5, weights: bestWeights, useSR: true
     });
     // Full dataset validation
@@ -1995,10 +1845,10 @@ async function autoOptimize() {
     console.log(`[optimize] done | score=${bestScore.toFixed(2)} | th=${(bestParams as any).entryThreshold} hold=${(bestParams as any).holdBars}`);
     console.log(`[optimize] weights: ${Object.entries(bestWeights).map(([k,v]) => `${k}=${v}`).join(' ')}`);
     if (trainResult.metrics) {
-      console.log(`[optimize] train: return=${trainResult.metrics.totalReturn}% win=${trainResult.metrics.winRate}% sharpe=${trainResult.metrics.sharpeRatio}`);
+      console.log(`[optimize] train: return=${trainResult.metrics.totalReturn}% win=${trainResult.metrics.winRate}% sharpe=${trainResult.metrics?.sharpe || 0}`);
     }
     if (testResult.metrics) {
-      console.log(`[optimize] test:  return=${testResult.metrics.totalReturn}% win=${testResult.metrics.winRate}% sharpe=${testResult.metrics.sharpeRatio}`);
+      console.log(`[optimize] test:  return=${testResult.metrics.totalReturn}% win=${testResult.metrics.winRate}% sharpe=${testResult.metrics?.sharpe || 0}`);
     }
   } catch (err) {
     console.error('[optimize] error:', err.message);
@@ -2012,487 +1862,9 @@ function calcCandlesForWindow(ticks, from, to, intervalSec) {
   return windowTicks.length > 1 ? buildCandlesFromTicks(windowTicks, intervalSec) : [];
 }
 
-function computeFactorScoreAtIndex(candles, binanceWindow, sentimentWindow, idx) {
-  if (idx < 5) return { composite: 0, scores: {} };
-  const slice = candles.slice(0, idx + 1);
-  const closes = slice.map(c => c.close);
-
-  // Momentum
-  const last = closes[closes.length - 1];
-  const shortLen = Math.min(12, closes.length);
-  const shortChg = (last - closes[closes.length - shortLen]) / closes[closes.length - shortLen] * 100;
-  const medLen = Math.min(Math.floor(closes.length * 0.15), closes.length - 1);
-  const medChg = (last - closes[closes.length - Math.max(medLen, 2)]) / closes[closes.length - Math.max(medLen, 2)] * 100;
-  const longChg = (last - closes[0]) / closes[0] * 100;
-  const momentum = clampScore(shortChg * 2 + medChg * 1.2 + longChg * 0.5);
-
-  // RSI + MACD
-  const rsiArr = calcRSI(closes, 14);
-  const rsi = rsiArr[rsiArr.length - 1];
-  const rsiScore = rsi != null ? (rsi - 50) / 5 : 0;
-  let macdScore = 0;
-  if (closes.length > 26) {
-    const macd = calcMACD(closes, 12, 26, 9);
-    const hist = macd.hist[macd.hist.length - 1];
-    macdScore = Math.sign(hist) * Math.min(Math.abs(hist) / 500, 5);
-  }
-  const indicator = clampScore(rsiScore * 0.6 + macdScore * 0.4);
-
-  // Volatility (ATR %)
-  let atrPct = 1;
-  if (slice.length > 15) {
-    let atrSum = 0;
-    const p = Math.min(14, slice.length - 1);
-    for (let i = slice.length - p; i < slice.length; i++) {
-      const h = slice[i].high, l = slice[i].low, prevC = slice[i - 1].close;
-      atrSum += Math.max(h - l, Math.abs(h - prevC), Math.abs(l - prevC));
-    }
-    atrPct = (atrSum / p / last) * 100;
-  }
-  const volatility = atrPct < 0.5 ? 3 : atrPct < 1 ? 2 : atrPct < 2 ? 0 : atrPct < 3 ? -3 : -6;
-
-  // Volume
-  const vols = slice.map(c => c.volume);
-  const lastVol = vols[vols.length - 1];
-  const avgVol = vols.slice(-20).reduce((s, v) => s + v, 0) / Math.min(20, vols.length);
-  const ratio = avgVol > 0 ? lastVol / avgVol : 1;
-  const lastChg = closes.length >= 2 ? closes[closes.length - 1] - closes[closes.length - 2] : 0;
-  const volDir = lastChg > 0 ? 1 : lastChg < 0 ? -1 : 0;
-  const volume = ratio > 2 ? clampScore(volDir * Math.min(ratio, 5)) : ratio > 1.5 ? clampScore(volDir * 2) : ratio < 0.5 ? -1 : 0;
-
-  // Funding
-  let funding = 0;
-  if (binanceWindow.length > 0) {
-    const latestFR = binanceWindow[binanceWindow.length - 1].funding_rate || 0;
-    funding = clampScore(latestFR * 300);
-  }
-
-  // FX
-  const fx = clampScore((krwUsdRate - KRW_USD_DEFAULT) / KRW_USD_DEFAULT * 300);
-
-  // Premium (Naver vs Binance price spread)
-  let premium = 0;
-  if (binanceWindow.length > 0 && binanceWindow[binanceWindow.length - 1].price) {
-    const bnPrice = binanceWindow[binanceWindow.length - 1].price;
-    const spread = (bnPrice - last / krwUsdRate) / (last / krwUsdRate) * 100;
-    premium = clampScore(spread * 3);
-  }
-
-  // Structure (distance to recent high/low)
-  const recentHigh = Math.max(...slice.slice(-20).map(c => c.high));
-  const recentLow = Math.min(...slice.slice(-20).map(c => c.low));
-  const distHigh = (recentHigh - last) / last * 100;
-  const distLow = (last - recentLow) / last * 100;
-  const structure = clampScore(distLow * 2 - distHigh * 2);
-
-  // ── Sentiment Factors (from binance_sentiment history) ──
-  let lsRatio = 0, takerVol = 0, openInterest = 0, lsTrend = 0, whale = 0;
-
-  if (sentimentWindow && sentimentWindow.length > 0) {
-    const latest = sentimentWindow[sentimentWindow.length - 1];
-
-    // Long/Short Ratio (contrarian)
-    const ls = latest.ls_ratio || 1;
-    if (ls > 3) lsRatio = -4; else if (ls > 2) lsRatio = -2;
-    else if (ls > 1.3) lsRatio = 2; else if (ls > 0.8) lsRatio = 0;
-    else if (ls > 0.5) lsRatio = 2; else lsRatio = 4;
-    const topR = (latest as any).top_ls_ratio || 1;
-    lsRatio = clampScore(lsRatio + (topR > 2 ? -1 : topR > 1.3 ? 1 : topR < 0.7 ? 1 : 0));
-
-    // Taker Volume
-    const tr = latest.taker_ratio || 1;
-    if (tr > 1.3) takerVol = 4; else if (tr > 1.05) takerVol = 2;
-    else if (tr > 0.95) takerVol = 0; else if (tr > 0.8) takerVol = -2;
-    else takerVol = -4;
-
-    // Open Interest + Price
-    const oiSignal = scoreOpenInterestSignal({
-      sentimentRows: sentimentWindow,
-      priceNow: last,
-      pricePrev: idx >= 5 ? closes[idx - 5] : null,
-    });
-    openInterest = oiSignal.score;
-
-    // LS Trend (compare with earliest in window)
-    if (sentimentWindow.length >= 3) {
-      const earliest = sentimentWindow[0].ls_ratio;
-      const lTrend = ls - earliest;
-      const prevH = sentimentWindow.length >= 2 ? sentimentWindow[sentimentWindow.length - 2].ls_ratio : ls;
-      const sTrend = ls - prevH;
-      if (ls > 2.5 && sTrend > 0.1) lsTrend = -3;
-      else if (ls < 0.7 && sTrend < -0.1) lsTrend = 3;
-      else if (ls > 1.8 && sTrend > 0.05) lsTrend = -2;
-      else if (ls < 0.9 && sTrend < -0.05) lsTrend = 2;
-      else if (lTrend > 0.3) lsTrend = 1; else if (lTrend < -0.3) lsTrend = -1;
-      else if (ls > 1.8) lsTrend = 1; else if (ls < 0.9) lsTrend = -1;
-    }
-
-    // Whale Activity
-    if (sentimentWindow.length >= 3) {
-      const tl = (latest as any).top_ls_ratio || 1;
-      const te = sentimentWindow[0].top_ls_ratio || 1;
-      const tTrend = tl - te;
-      const tp = sentimentWindow.length >= 2 ? sentimentWindow[sentimentWindow.length - 2].top_ls_ratio : tl;
-      const tsT = tl - tp;
-      if (tl > 2 && tsT > 0.1) whale = 4;
-      else if (tl > 1.5 && tsT > 0.05) whale = 2;
-      else if (tl < 0.7 && tsT < -0.1) whale = -4;
-      else if (tl < 0.8 && tsT < -0.05) whale = -2;
-      else if (tl > 1.8 && tTrend > 0.2) whale = 2;
-      else if (tl < 0.9 && tTrend < -0.2) whale = -2;
-      else if (tl > 1.8) whale = 1; else if (tl < 0.9) whale = -1;
-    }
-  }
-
-  return {
-    scores: { momentum, funding, volume, volatility, fx, premium, indicator, structure, lsRatio, takerVol, openInterest, lsTrend, whale },
-    rsi, atrPct, lastPrice: last
-  };
-}
-
-function inferCandleIntervalSec(candles, idx) {
-  if (!candles || idx <= 0 || !candles[idx] || !candles[idx - 1]) return 900;
-  return Math.max(60, candles[idx].time - candles[idx - 1].time);
-}
-
-function buildBacktestBasisSnapshot(candles, idx, binanceWindow) {
-  const intervalSec = inferCandleIntervalSec(candles, idx);
-  const start = Math.max(0, idx - 95);
-  const spotRows = candles.slice(start, idx + 1).map(candle => ({
-    ts: candle.time,
-    price: candle.close,
-  }));
-  const series = alignBasisSeries({
-    spotTicks: spotRows,
-    binanceTicks: binanceWindow,
-    fxRate: krwUsdRate,
-    bucketSec: intervalSec,
-  });
-  return computeBasisSnapshot(series, { lookback: Math.min(96, series.length || 96), bandWidth: 2 });
-}
-
-function buildBacktestTradeContext({ candles, idx, binanceWindow, scores, composite, atrPct, entryThreshold }) {
-  const basis = buildBacktestBasisSnapshot(candles, idx, binanceWindow);
-  const event = getEventWindow(candles[idx].time * 1000);
-  const regime = deriveRegime({
-    composite,
-    consensus: calcScoreConsensus(scores),
-    eventStatus: event.status,
-    basisZScore: basis.ready ? basis.zScore : 0,
-    atrPct,
-  });
-  const adjustedThreshold = entryThreshold * (regime.entryThresholdMultiplier || 1);
-  let direction = '观望';
-  if (composite > adjustedThreshold) direction = '做多';
-  else if (composite < -adjustedThreshold) direction = '做空';
-  const risk = buildRiskOverlay({
-    direction,
-    atrPct,
-    volatilityScore: scores.volatility || 0,
-    fundingRate: binanceWindow[binanceWindow.length - 1]?.funding_rate || 0,
-    eventStatus: event.status,
-    basisZScore: basis.ready ? basis.zScore : 0,
-    regimeMode: regime.mode,
-  });
-
-  return {
-    basis,
-    event,
-    regime,
-    risk,
-    adjustedThreshold,
-    direction,
-  };
-}
-
-function backtestEngine(candles, binanceTicks, sentimentData, params = {}) {
-  const {
-    entryThreshold = 2.0,
-    holdBars = 12,
-    leverage = 5,
-    weights = { ...DEFAULT_WEIGHTS },
-    useSR = true, // use S/R-based SL/TP
-    stopLossPct = 3.0, // fallback if useSR=false
-    takeProfitPct = 5.0,
-  } = params;
-
-  if (candles.length < 30) {
-    return { metrics: null, trades: [], equityCurve: [], factorHistory: [] };
-  }
-
-  const initialEquity = 10000;
-  let equity = initialEquity;
-  let peak = initialEquity;
-  const trades = [];
-  const equityCurve = [{ time: candles[0].time, equity }];
-  const factorHistory = [];
-  let inPosition = false;
-  let entryBar = 0;
-  let entryPrice = 0;
-  let direction = 0;
-  let slPrice = 0, tpPrice = 0;
-  let positionSizeFrac = 0;
-
-  let binanceIdx = 0;
-  let sentimentIdx = 0;
-
-  for (let i = 30; i < candles.length; i++) {
-    const candle = candles[i];
-    
-    while (binanceIdx < binanceTicks.length && binanceTicks[binanceIdx].ts <= candle.time) {
-      binanceIdx++;
-    }
-    const binanceWindow = binanceTicks.slice(0, binanceIdx);
-    
-    if (sentimentData) {
-      while (sentimentIdx < sentimentData.length && sentimentData[sentimentIdx].ts <= candle.time) {
-        sentimentIdx++;
-      }
-    }
-    const sentimentWindow = sentimentData ? sentimentData.slice(Math.max(0, sentimentIdx - 24), sentimentIdx) : [];
-
-    // Compute factor scores (now with sentiment)
-    const { scores, atrPct, lastPrice } = computeFactorScoreAtIndex(candles, binanceWindow, sentimentWindow, i);
-    // News factor: 0 in backtest (no historical news)
-    (scores as any).news = 0;
-
-    // Weighted composite
-    const totalWeight = Object.values(weights).reduce((s, w) => s + w, 0);
-    const composite = totalWeight > 0
-      ? Object.entries(scores).reduce((s, [k, v]) => s + (v || 0) * (weights[k] || 0), 0) / totalWeight
-      : 0;
-    const context = buildBacktestTradeContext({
-      candles,
-      idx: i,
-      binanceWindow,
-      scores,
-      composite,
-      atrPct,
-      entryThreshold,
-    });
-
-    // Find S/R levels for SL/TP
-    const recentSlice = candles.slice(Math.max(0, i - 30), i + 1);
-    let nearestSupport = 0, nearestResistance = Infinity;
-    if (useSR && recentSlice.length > 5) {
-      const sr = findSupportResistance(recentSlice);
-      const price = lastPrice;
-      for (const l of (sr.support || [])) {
-        if ((l as any).price < price && (l as any).price > nearestSupport) nearestSupport = (l as any).price;
-      }
-      for (const l of (sr.resistance || [])) {
-        if ((l as any).price > price && (l as any).price < nearestResistance) nearestResistance = (l as any).price;
-      }
-    }
-
-    // ATR for dynamic SL
-    const atr = lastPrice * atrPct / 100;
-
-    factorHistory.push({
-      time: candle.time,
-      scores,
-      composite,
-      action: 'hold',
-      regime: (context as any).regime.mode,
-      eventStatus: context.event.status,
-      basisZScore: (context as any).basis.ready ? (context as any).basis.zScore : null,
-      riskAction: context.risk.action,
-      positionPct: context.risk.positionPct,
-    });
-
-    if (inPosition) {
-      const barsInTrade = i - entryBar;
-      const grossPnlPct = direction === 1
-        ? (candle.close - entryPrice) / entryPrice * 100 * leverage
-        : (entryPrice - candle.close) / entryPrice * 100 * leverage;
-      const pnlPct = grossPnlPct * positionSizeFrac;
-
-      let exit = false, exitReason = '';
-
-      // Check SL/TP
-      if (direction === 1) {
-        if (candle.low <= slPrice) { exit = true; exitReason = 'stop_loss'; }
-        else if (candle.high >= tpPrice) { exit = true; exitReason = 'take_profit'; }
-      } else {
-        if (candle.high >= slPrice) { exit = true; exitReason = 'stop_loss'; }
-        else if (candle.low <= tpPrice) { exit = true; exitReason = 'take_profit'; }
-      }
-
-      if (!exit && barsInTrade >= holdBars) { exit = true; exitReason = 'time_exit'; }
-      if (!exit && context.event.status === 'freeze') { exit = true; exitReason = 'event_freeze'; }
-      if (!exit && ((direction === 1 && composite < -context.adjustedThreshold) ||
-                     (direction === -1 && composite > context.adjustedThreshold))) {
-        exit = true; exitReason = 'reverse';
-      }
-
-      if (exit) {
-        const pnl = equity * (pnlPct / 100);
-        equity += pnl;
-        trades.push({
-          entryTime: candles[entryBar].time, exitTime: candle.time,
-          entryPrice, exitPrice: candle.close,
-          direction: direction === 1 ? 'long' : 'short',
-          pnlPct: Math.round(pnlPct * 100) / 100,
-          pnl: Math.round(pnl * 100) / 100,
-          exitReason, bars: barsInTrade,
-          positionSizePct: Math.round(positionSizeFrac * 100),
-          sl: Math.round(slPrice), tp: Math.round(tpPrice)
-        });
-        inPosition = false;
-        positionSizeFrac = 0;
-        if (factorHistory.length > 0) factorHistory[factorHistory.length - 1].action = exitReason;
-      }
-    } else {
-      if (context.direction === '做多' && !context.risk.blocked && context.risk.positionPct > 0) {
-        inPosition = true; entryBar = i; entryPrice = candle.close; direction = 1;
-        positionSizeFrac = context.risk.positionPct / 100;
-        // S/R-based or ATR-based SL/TP
-        if (useSR && nearestSupport > 0 && nearestResistance < Infinity) {
-          slPrice = nearestSupport * 0.995; // 0.5% below support
-          tpPrice = nearestResistance * 0.995; // 0.5% below resistance
-        } else {
-          slPrice = entryPrice * (1 - stopLossPct / 100 / leverage);
-          tpPrice = entryPrice * (1 + takeProfitPct / 100 / leverage);
-        }
-        if (factorHistory.length > 0) factorHistory[factorHistory.length - 1].action = 'long';
-      } else if (context.direction === '做空' && !context.risk.blocked && context.risk.positionPct > 0) {
-        inPosition = true; entryBar = i; entryPrice = candle.close; direction = -1;
-        positionSizeFrac = context.risk.positionPct / 100;
-        if (useSR && nearestSupport > 0 && nearestResistance < Infinity) {
-          slPrice = nearestResistance * 1.005;
-          tpPrice = nearestSupport * 1.005;
-        } else {
-          slPrice = entryPrice * (1 + stopLossPct / 100 / leverage);
-          tpPrice = entryPrice * (1 - takeProfitPct / 100 / leverage);
-        }
-        if (factorHistory.length > 0) factorHistory[factorHistory.length - 1].action = 'short';
-      } else if (context.direction !== '观望' && factorHistory.length > 0) {
-        factorHistory[factorHistory.length - 1].action = context.risk.blocked ? 'blocked' : 'skip';
-      }
-    }
-
-    peak = Math.max(peak, equity);
-    equityCurve.push({ time: candle.time, equity: Math.round(equity * 100) / 100 });
-  }
-
-  // Close open position
-  if (inPosition) {
-    const lastPrice = candles[candles.length - 1].close;
-    const grossPnlPct = direction === 1
-      ? (lastPrice - entryPrice) / entryPrice * 100 * leverage
-      : (entryPrice - lastPrice) / entryPrice * 100 * leverage;
-    const pnlPct = grossPnlPct * positionSizeFrac;
-    const pnl = equity * (pnlPct / 100);
-    equity += pnl;
-    trades.push({
-      entryTime: candles[entryBar].time, exitTime: candles[candles.length - 1].time,
-      entryPrice, exitPrice: lastPrice,
-      direction: direction === 1 ? 'long' : 'short',
-      pnlPct: Math.round(pnlPct * 100) / 100,
-      pnl: Math.round(pnl * 100) / 100,
-      exitReason: 'end_of_data', bars: candles.length - 1 - entryBar,
-      positionSizePct: Math.round(positionSizeFrac * 100),
-      sl: Math.round(slPrice), tp: Math.round(tpPrice)
-    });
-  }
-
-  const metrics = computeMetrics(trades, equityCurve, initialEquity);
-  return { metrics, trades: trades.slice(-50), equityCurve, factorHistory: factorHistory.slice(-200) };
-}
-
-function computeMetrics(trades, equityCurve, initialEquity) {
-  if (trades.length === 0) {
-    return {
-      totalReturn: 0, winRate: 0, profitFactor: 0, sharpeRatio: 0,
-      maxDrawdown: 0, totalTrades: 0, avgHoldBars: 0,
-      avgWin: 0, avgLoss: 0, expectancy: 0
-    };
-  }
-
-  const wins = trades.filter(t => t.pnl > 0);
-  const losses = trades.filter(t => t.pnl <= 0);
-  const winRate = (wins.length / trades.length * 100);
-
-  const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnlPct, 0) / wins.length : 0;
-  const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.pnlPct, 0) / losses.length) : 0;
-  const profitFactor = avgLoss > 0 ? avgWin / avgLoss : avgWin > 0 ? 99 : 0;
-
-  // Sharpe Ratio (simplified)
-  const returns = trades.map(t => t.pnlPct);
-  const avgReturn = returns.reduce((s, r) => s + r, 0) / returns.length;
-  const stdReturn = Math.sqrt(returns.reduce((s, r) => s + (r - avgReturn) ** 2, 0) / returns.length);
-  const sharpeRatio = stdReturn > 0 ? (avgReturn / stdReturn) * Math.sqrt(252 / Math.max(1, trades.length)) : 0;
-
-  // Max Drawdown
-  let maxDD = 0;
-  let peak = initialEquity;
-  for (const point of equityCurve) {
-    peak = Math.max(peak, point.equity);
-    const dd = (peak - point.equity) / peak * 100;
-    maxDD = Math.max(maxDD, dd);
-  }
-
-  const totalReturn = ((equityCurve[equityCurve.length - 1].equity - initialEquity) / initialEquity * 100);
-  const avgHoldBars = trades.reduce((s, t) => s + t.bars, 0) / trades.length;
-  const expectancy = (winRate / 100 * avgWin) - ((100 - winRate) / 100 * avgLoss);
-
-  return {
-    totalReturn: Math.round(totalReturn * 100) / 100,
-    winRate: Math.round(winRate * 10) / 10,
-    profitFactor: Math.round(profitFactor * 100) / 100,
-    sharpeRatio: Math.round(sharpeRatio * 100) / 100,
-    maxDrawdown: Math.round(maxDD * 100) / 100,
-    totalTrades: trades.length,
-    avgHoldBars: Math.round(avgHoldBars * 10) / 10,
-    avgWin: Math.round(avgWin * 100) / 100,
-    avgLoss: Math.round(avgLoss * 100) / 100,
-    expectancy: Math.round(expectancy * 100) / 100,
-  };
-}
-
-function optimizeWeights(candles, binanceTicks) {
-  const best = { score: -Infinity, weights: { ...DEFAULT_WEIGHTS } };
-  const factorKeys = Object.keys(DEFAULT_WEIGHTS);
-  const weightOptions = [0.3, 0.5, 0.7, 0.9, 1.0];
-
-  // Simplified optimization: optimize each factor independently
-  for (const key of factorKeys) {
-    let bestForFactor = DEFAULT_WEIGHTS[key];
-    let bestScore = -Infinity;
-
-    for (const w of weightOptions) {
-      const testWeights = { ...DEFAULT_WEIGHTS, [key]: w };
-      const result = backtestEngine(candles, binanceTicks, {
-        entryThreshold: 2.0, holdBars: 12, stopLossPct: 3.0,
-        takeProfitPct: 5.0, leverage: 5, weights: testWeights
-      });
-      if (result.metrics && result.metrics.totalTrades >= 3) {
-        // Score = Sharpe * sqrt(trades) * winRate/100 - maxDrawdown/10
-        const score = result.metrics.sharpeRatio * Math.sqrt(result.metrics.totalTrades) *
-          (result.metrics.winRate / 100) - result.metrics.maxDrawdown / 10;
-        if (score > bestScore) {
-          bestScore = score;
-          bestForFactor = w;
-        }
-      }
-    }
-    (best as any).weights[key] = bestForFactor;
-  }
-
-  // Run final backtest with optimized weights
-  const finalResult = backtestEngine(candles, binanceTicks, {
-    entryThreshold: 2.0, holdBars: 12, stopLossPct: 3.0,
-    takeProfitPct: 5.0, leverage: 5, weights: (best as any).weights
-  });
-
-  return {
-    optimizedWeights: (best as any).weights,
-    metrics: finalResult.metrics,
-    trades: finalResult.trades,
-    equityCurve: finalResult.equityCurve,
-    factorHistory: finalResult.factorHistory,
-  };
-}
+// Use imported backtest functions from domain module
+const legacyBacktestEngine = backtestEngine;
+const legacyOptimizeWeights = optimizeWeights;
 
 app.get('/api/backtest', async (req, res) => {
   try {
@@ -2536,10 +1908,10 @@ app.get('/api/backtest', async (req, res) => {
       const fullResult = backtestEngine(candles, binanceWindow, sentimentData, {
         ...activeParams, leverage, weights: { ...activeWeights }, useSR: true
       });
-      const trainResult = backtestEngine(trainCandles, trainBinance, trainSentiment, {
+      const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, {
         ...activeParams, leverage, weights: { ...activeWeights }, useSR: true
       });
-      const testResult = backtestEngine(testCandles, testBinance, testSentiment, {
+      const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, {
         ...activeParams, leverage, weights: { ...activeWeights }, useSR: true
       });
       res.json({
@@ -2556,11 +1928,11 @@ app.get('/api/backtest', async (req, res) => {
         entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage,
         weights: { ...activeWeights }, useSR: true
       });
-      const trainResult = backtestEngine(trainCandles, trainBinance, trainSentiment, {
+      const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, {
         entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage,
         weights: { ...activeWeights }, useSR: true
       });
-      const testResult = backtestEngine(testCandles, testBinance, testSentiment, {
+      const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, {
         entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage,
         weights: { ...activeWeights }, useSR: true
       });
@@ -2733,8 +2105,8 @@ app.listen(PORT, () => {
   console.log(`\n  SK Hynix Chart Server (multi-source + SQLite)`);
   console.log(`  → http://localhost:${PORT}`);
   console.log(`  Sources: ${Object.keys(SOURCES).join(', ')}`);
-  const cnt = countTicks.get().cnt;
-  const bnCnt = countBinanceTicks.get().cnt;
+  const cnt = (countTicks.get() as { cnt: number }).cnt;
+  const bnCnt = (countBinanceTicks.get() as { cnt: number }).cnt;
   console.log(`  SQLite ticks: ${cnt} (Naver: ${cnt}, Binance: ${bnCnt})\n`);
   // Record first tick immediately
   recordTick();

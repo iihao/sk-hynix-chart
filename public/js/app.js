@@ -25,6 +25,7 @@ import {
   normalizeBacktest,
   normalizeFactors,
   normalizeIndicators,
+  resolveResponseSource,
 } from './dashboard-data.mjs';
 
 /* ── Signal Panel Toggle ── */
@@ -184,21 +185,26 @@ async function switchSource(src) {
   fetchData();
 }
 
+function syncSourceFromResponse(data) {
+  const responseSource = resolveResponseSource(state.currentSource, data);
+  if (responseSource === state.currentSource) return;
+  state.currentSource = responseSource;
+  $('srcSel').value = responseSource;
+  connectSSE();
+}
+
 /* ── Fetch Data ── */
 async function fetchData() {
   try {
     const res = await fetch('/api/data?source=' + state.currentSource);
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = normalizeIndicators(await res.json());
+    const data = await res.json();
     if (data.error) throw new Error(data.error);
 
     state.krwUsdRate = data.krwUsd || KRW_USD_DEFAULT;
     state.rawData = data;
 
-    if (data.source && data.source !== state.currentSource) {
-      state.currentSource = data.source;
-      $('srcSel').value = state.currentSource;
-    }
+    syncSourceFromResponse(data);
 
     updateAll(data);
     updateLatency(data.serverTime);
@@ -231,6 +237,7 @@ function connectSSE() {
       state.krwUsdRate = data.krwUsd || KRW_USD_DEFAULT;
       state.rawData = data;
       state.lastServerTime = data.serverTime || 0;
+      syncSourceFromResponse(data);
       updateAll(data);
       updateLatency(data.serverTime);
       $('refreshLabel').textContent =
@@ -253,7 +260,7 @@ async function updateIndicators() {
   try {
     const res = await fetch('/api/indicators');
     if (!res.ok) return;
-    const data = await res.json();
+    const data = normalizeIndicators(await res.json());
     
     const rsiEl = $('indRsi');
     const macdEl = $('indMacd');
@@ -450,8 +457,8 @@ async function runBacktest(optimize = false) {
       
       for (const t of data.trades.slice(0, 5)) {
         const div = document.createElement('div');
-        div.style.cssText = 'font-size:10px;padding:2px 0;color:' + (t.pnl >= 0 ? 'var(--green)' : 'var(--red)');
-        div.textContent = `${t.direction} ${t.entry.toFixed(2)} → ${t.exit.toFixed(2)} (${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}%)`;
+        div.style.cssText = 'font-size:10px;padding:2px 0;color:' + (t.pnlPct >= 0 ? 'var(--green)' : 'var(--red)');
+        div.textContent = `${t.direction} ${t.entry.toFixed(2)} → ${t.exit.toFixed(2)} (${t.pnlPct >= 0 ? '+' : ''}${t.pnlPct.toFixed(2)}%)`;
         tradesEl.appendChild(div);
       }
     }

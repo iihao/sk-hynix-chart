@@ -5,6 +5,7 @@ import {
   normalizeBacktest,
   normalizeFactors,
   normalizeIndicators,
+  resolveResponseSource,
 } from '../public/js/dashboard-data.mjs';
 
 test('normalizes indicator latest values', () => {
@@ -50,7 +51,7 @@ test('does not multiply server win rate and maps trade prices', () => {
   const result = normalizeBacktest({
     metrics: { winRate: 39.7, totalReturn: 1, sharpeRatio: 0.2 },
     trades: [
-      { entryPrice: 100, exitPrice: 101, pnl: 5, direction: 'long' },
+      { entryPrice: 100, exitPrice: 101, pnl: 5, pnlPct: 0.5, direction: 'long' },
     ],
     activeWeights: { momentum: 0.9 },
   });
@@ -59,6 +60,7 @@ test('does not multiply server win rate and maps trade prices', () => {
   assert.equal(result.metrics.sharpe, 0.2);
   assert.equal(result.trades[0].entry, 100);
   assert.equal(result.trades[0].exit, 101);
+  assert.equal(result.trades[0].pnlPct, 0.5);
   assert.deepEqual(result.weights, { momentum: 0.9 });
 });
 
@@ -71,4 +73,9 @@ test('preserves backtest error payloads', () => {
 
   assert.equal(result.error, '数据不足');
   assert.equal(result.metrics, null);
+});
+
+test('uses a valid fallback response source', () => {
+  assert.equal(resolveResponseSource('yahoo', { source: 'naver' }), 'naver');
+  assert.equal(resolveResponseSource('naver', { source: 'invalid' }), 'naver');
 });

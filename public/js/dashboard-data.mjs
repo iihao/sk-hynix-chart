@@ -78,8 +78,14 @@ export function normalizeBacktest(payload) {
         entry: asNumber(item.entryPrice, `trades[${index}].entryPrice`),
         exit: asNumber(item.exitPrice, `trades[${index}].exitPrice`),
         pnl: asNumber(item.pnl, `trades[${index}].pnl`),
+        pnlPct: asNumber(item.pnlPct, `trades[${index}].pnlPct`),
       };
     }),
     weights: data.optimizedWeights || data.activeWeights || null,
   };
+}
+
+export function resolveResponseSource(currentSource, payload) {
+  const responseSource = payload && payload.source;
+  return ['yahoo', 'naver'].includes(responseSource) ? responseSource : currentSource;
 }
