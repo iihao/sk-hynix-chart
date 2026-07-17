@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SK Hynix 000660.KS</title>
-  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="/vendor/lightweight-charts.standalone.production.js"></script>
   <link rel="stylesheet" href="/css/main.css">
   <link rel="stylesheet" href="/css/chart.css">
   <link rel="stylesheet" href="/css/signal-panel.css">
   <link rel="stylesheet" href="/css/calculator.css">
   <link rel="stylesheet" href="/css/stealth.css">
 </head>
-<body>
+<body class="signal-panel-open">
 
   <!-- Header -->
   <div class="header">
@@ -239,7 +239,7 @@
   <div class="signal-expand-strip" id="signalExpandStrip" onclick="toggleSignalPanel()">◀</div>
 
   <!-- Signal Panel -->
-  <div class="signal-panel" id="signalPanel">
+  <div class="signal-panel open" id="signalPanel">
     <div class="signal-header">
       <span class="signal-title">Quant</span>
       <button class="signal-toggle-btn" onclick="toggleSignalPanel()">✕</button>

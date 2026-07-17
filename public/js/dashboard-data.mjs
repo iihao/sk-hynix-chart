@@ -37,6 +37,11 @@ export function normalizeFactors(payload) {
   const labels = { long: '做多', short: '做空', neutral: '中性' };
   return {
     factors: data.factors,
+    marketContext: data.marketContext && typeof data.marketContext === 'object'
+      ? data.marketContext
+      : null,
+    risk: data.risk && typeof data.risk === 'object' ? data.risk : null,
+    basis: data.basis && typeof data.basis === 'object' ? data.basis : null,
     direction: {
       code: data.direction,
       label: labels[data.direction],

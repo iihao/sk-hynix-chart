@@ -129,7 +129,7 @@ export function makeChart(containerId, tf) {
   });
   ro.observe(el);
 
-  return { chart, series, volSeries, naverLine, bnSeries };
+  return { chart, series, volSeries, naverLine, bnSeries, initialFramed: false };
 }
 
 /* ── Data Pipeline ── */
@@ -186,15 +186,24 @@ export function pushData(tf, data, bnData) {
   const ld = $('load-' + tf);
   if (ld) ld.classList.add('hide');
 
-  const VISIBLE_BARS = { m1: 120, m5: 100, m15: 80, h1: 60 };
-  const allData = data?.candles || [];
-  const barCount = VISIBLE_BARS[tf] || 100;
-  if (allData.length > barCount) {
-    const from = allData[allData.length - barCount].time;
-    const to = allData[allData.length - 1].time;
-    c.chart.timeScale().setVisibleRange({ from, to });
-  } else {
-    c.chart.timeScale().fitContent();
+  if (!c.initialFramed) {
+    const visibleBars = { m1: 120, m5: 120, m15: 120, h1: 120 };
+    const allData = data?.candles || [];
+    const barCount = visibleBars[tf] || 120;
+    if (allData.length > barCount) {
+      const from = allData[allData.length - barCount].time;
+      const to = allData[allData.length - 1].time;
+      c.chart.timeScale().setVisibleRange({ from, to });
+    } else {
+      c.chart.timeScale().fitContent();
+    }
+    c.initialFramed = true;
+  }
+}
+
+export function resetChartFraming() {
+  for (const chart of Object.values(state.charts)) {
+    if (chart) chart.initialFramed = false;
   }
 }
 
@@ -213,7 +222,23 @@ export function switchTF(tf, btn) {
       target.classList.add('active');
       setTimeout(() => {
         const c = state.charts[tf];
-        if (c) c.chart.timeScale().fitContent();
+        if (c) {
+          const visibleBars = { m1: 120, m5: 120, m15: 120, h1: 120 };
+          const barCount = visibleBars[tf] || 120;
+          const dataLength = c.series?.data?.length || 0;
+          if (dataLength > barCount) {
+            const from = c.series.data()[dataLength - barCount]?.time;
+            const to = c.series.data()[dataLength - 1]?.time;
+            if (from && to) {
+              c.chart.timeScale().setVisibleRange({ from, to });
+            } else {
+              c.chart.timeScale().fitContent();
+            }
+          } else {
+            c.chart.timeScale().fitContent();
+          }
+          c.initialFramed = true;
+        }
       }, 320);
     });
   }

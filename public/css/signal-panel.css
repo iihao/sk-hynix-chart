@@ -5,7 +5,7 @@
   right: 0;
   width: 360px;
   height: 100vh;
-  background: var(--card);
+  background: var(--surface);
   border-left: 1px solid var(--border);
   transform: translateX(360px);
   transition: transform 0.3s ease;
@@ -106,7 +106,7 @@
 .dir-dash {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 10px;
   margin-bottom: 8px;
   position: relative;
@@ -186,6 +186,38 @@
 }
 .ftag-score { font-weight: 600; font-family: 'JetBrains Mono', monospace; }
 .ftag-name { opacity: 0.8; }
+
+.factor-row {
+  display: grid;
+  grid-template-columns: minmax(70px, auto) 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.factor-name { color: var(--text-bright); }
+.factor-detail { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.factor-score { text-align: right; font: 600 10px 'JetBrains Mono', monospace; }
+.factor-row.bull .factor-score { color: var(--green); }
+.factor-row.bear .factor-score { color: var(--red); }
+.factor-row.neut .factor-score { color: var(--text); }
+.health-row {
+  display: grid;
+  grid-template-columns: 1fr auto 40px;
+  gap: 8px;
+  padding: 5px 8px;
+  font: 10px 'JetBrains Mono', monospace;
+  border-bottom: 1px solid var(--border);
+}
+.health-source { color: var(--text-bright); }
+.health-count { color: var(--text); }
+.health-age { text-align: right; }
+.health-row.fresh .health-age { color: var(--green); }
+.health-row.stale .health-age { color: var(--yellow); }
+.panel-message { padding: 10px 8px; color: var(--text); font-size: 10px; text-align: center; }
+.panel-message.error { color: var(--red); }
 
 /* ── Signal Cards ── */
 .signal-card {
@@ -486,6 +518,10 @@ body.wide-mode .sb-col2 { overflow: visible; border-left: 1px solid var(--border
 body.wide-mode .collapsible-body { display: block !important; }
 body.wide-mode .collapsible-arrow { display: none; }
 body.wide-mode .collapsible-head { cursor: default; padding: 2px 0; }
+
+@media (min-width: 1600px) {
+  .signal-panel { width: 420px; transform: translateX(420px); }
+}
 
 /* ── Market Context ── */
 .ctx-row {

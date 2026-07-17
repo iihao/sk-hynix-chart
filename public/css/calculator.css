@@ -9,7 +9,7 @@
   border: none;
   width: 40px;
   height: 40px;
-  border-radius: 50%;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 18px;
   font-weight: 700;
@@ -32,7 +32,7 @@
   z-index: 50;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 6px;
   padding: 16px;
   width: 300px;
   display: none;
@@ -76,7 +76,7 @@
   font-size: 9px;
   color: var(--text);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
 }
 .fp-calc-input {
   background: var(--bg);

@@ -32,6 +32,14 @@ test('normalizes factor direction for display', () => {
   });
 });
 
+test('preserves supported factor context fields', () => {
+  const marketContext = { atrPct: 2.1 };
+  const result = normalizeFactors({
+    factors: [], composite: 0, direction: 'neutral', confidence: 0, marketContext,
+  });
+  assert.deepEqual(result.marketContext, marketContext);
+});
+
 test('uses production backtest query names', () => {
   const query = buildBacktestQuery({
     threshold: 2,

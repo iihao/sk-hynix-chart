@@ -59,6 +59,10 @@
   opacity: 0;
   pointer-events: none;
 }
+.loading-mask.chart-error {
+  color: var(--red);
+  background: var(--bg);
+}
 .spinner {
   width: 18px;
   height: 18px;

@@ -9,28 +9,50 @@ import {
   $,
   showError,
 } from './utils.js';
-import { makeChart, pushData, switchTF } from './chart.js';
+import { makeChart, pushData, resetChartFraming, switchTF } from './chart.js';
 import {
   toggleCalculator,
   fpSetDirection,
   fpUseCurrentPrice,
   fpCalculatePnl,
-  setDirection,
-  useCurrentPrice,
-  calculatePnl,
   fetchBinancePrice,
 } from './calculator.js';
+import { createDashboardController } from './dashboard-controller.mjs';
+import {
+  renderConnectionState as renderConnectionLabel,
+  renderFactors,
+  renderMarketContext,
+  renderPanelMessage,
+  renderSignals,
+  renderSourceHealth,
+} from './dashboard-renderers.mjs';
 import {
   buildBacktestQuery,
   normalizeBacktest,
   normalizeFactors,
   normalizeIndicators,
-  resolveResponseSource,
 } from './dashboard-data.mjs';
+
+const panelRequests = new Map();
+let secondaryTimers = [];
+
+const dashboardController = createDashboardController({
+  fetch: window.fetch.bind(window),
+  createEventSource: (url) => new EventSource(url),
+  setTimeout: window.setTimeout.bind(window),
+  clearTimeout: window.clearTimeout.bind(window),
+  setInterval: window.setInterval.bind(window),
+  clearInterval: window.clearInterval.bind(window),
+  now: () => Date.now(),
+  onSnapshot: applySnapshot,
+  onConnection: (connection) => renderConnectionLabel($('refreshLabel'), connection),
+  onError: (message) => showError(message),
+});
 
 /* ── Signal Panel Toggle ── */
 function toggleSignalPanel() {
   $('signalPanel').classList.toggle('open');
+  document.body.classList.toggle('signal-panel-open', $('signalPanel').classList.contains('open'));
 }
 
 function toggleCollapsible(id) {
@@ -179,87 +201,35 @@ function switchCurrency(cur) {
 /* ── Source Switch ── */
 async function switchSource(src) {
   state.currentSource = src;
-  // Reconnect SSE with new source
-  connectSSE();
-  // Also fetch data immediately
-  fetchData();
+  resetChartFraming();
+  await dashboardController.setSource(src);
 }
 
-function syncSourceFromResponse(data) {
-  const responseSource = resolveResponseSource(state.currentSource, data);
-  if (responseSource === state.currentSource) return;
-  state.currentSource = responseSource;
-  $('srcSel').value = responseSource;
-  connectSSE();
-}
-
-/* ── Fetch Data ── */
-async function fetchData() {
-  try {
-    const res = await fetch('/api/data?source=' + state.currentSource);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-
-    state.krwUsdRate = data.krwUsd || KRW_USD_DEFAULT;
-    state.rawData = data;
-
-    syncSourceFromResponse(data);
-
-    updateAll(data);
-    updateLatency(data.serverTime);
-    $('refreshLabel').textContent = new Date().toLocaleTimeString('zh-CN', {
-      hour12: false,
-    });
-  } catch (e) {
-    console.error(e);
-    showError(e.message);
+function applySnapshot(data) {
+  if (!data || data.error) {
+    if (data?.error) showError(data.error);
+    return;
   }
+  state.krwUsdRate = data.krwUsd || KRW_USD_DEFAULT;
+  state.rawData = data;
+  state.lastServerTime = data.serverTime || 0;
+  updateAll(data);
+  updateLatency(data.serverTime);
 }
 
-/* ── SSE ── */
-let currentEventSource = null;
-
-function connectSSE() {
-  // Close existing connection
-  if (currentEventSource) {
-    currentEventSource.close();
-    currentEventSource = null;
-  }
-  
-  const source = state.currentSource || 'naver';
-  const url = `/api/stream?source=${encodeURIComponent(source)}`;
-  currentEventSource = new EventSource(url);
-  
-  currentEventSource.onmessage = (e) => {
-    try {
-      const data = JSON.parse(e.data);
-      state.krwUsdRate = data.krwUsd || KRW_USD_DEFAULT;
-      state.rawData = data;
-      state.lastServerTime = data.serverTime || 0;
-      syncSourceFromResponse(data);
-      updateAll(data);
-      updateLatency(data.serverTime);
-      $('refreshLabel').textContent =
-        'LIVE ' +
-        new Date().toLocaleTimeString('zh-CN', { hour12: false });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-  
-  currentEventSource.onerror = () => {
-    currentEventSource.close();
-    currentEventSource = null;
-    setTimeout(connectSSE, 5000);
-  };
+function nextPanelSignal(panel) {
+  panelRequests.get(panel)?.abort();
+  const controller = new AbortController();
+  panelRequests.set(panel, controller);
+  return controller.signal;
 }
 
 /* ── Indicators ── */
 async function updateIndicators() {
+  const signal = nextPanelSignal('indicators');
   try {
-    const res = await fetch('/api/indicators');
-    if (!res.ok) return;
+    const res = await fetch('/api/indicators', { signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = normalizeIndicators(await res.json());
 
     const rsiEl = $('indRsi');
@@ -282,73 +252,25 @@ async function updateIndicators() {
       volEl.className = 'ind-stat-val ' + (volRatio > 1.5 ? 'bullish' : volRatio < 0.5 ? 'bearish' : 'neutral');
     }
 
-    renderSignals(data.signals);
+    renderSignals(document, $('signalsContainer'), data.signals);
+    dashboardController.markPanel('indicators', 'ready');
   } catch (e) {
+    if (e.name === 'AbortError') return;
     console.error('Failed to fetch indicators:', e);
-  }
-}
-
-function renderSignals(signals) {
-  const el = $('signalsContainer');
-  if (!el) return;
-  el.innerHTML = '';
-  if (!signals || signals.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'sig-empty';
-    empty.textContent = '暂无信号';
-    el.appendChild(empty);
-    return;
-  }
-  for (const s of signals) {
-    const row = document.createElement('div');
-    row.className = 'sig-row ' + (s.type === 'buy' || s.type === 'golden_cross' || s.type === 'rsi_oversold' || s.type === 'macd_golden' || s.type === 'boll_breakdown' ? 'bull' : s.type === 'sell' || s.type === 'death_cross' || s.type === 'rsi_overbought' || s.type === 'macd_death' || s.type === 'boll_breakup' ? 'bear' : 'neut');
-
-    const dot = document.createElement('span');
-    dot.className = 'sig-dot';
-
-    const label = document.createElement('span');
-    label.className = 'sig-label';
-    label.textContent = s.label;
-
-    const strength = document.createElement('span');
-    strength.className = 'sig-strength';
-    strength.textContent = '★'.repeat(s.strength || 1);
-
-    row.appendChild(dot);
-    row.appendChild(label);
-    row.appendChild(strength);
-    el.appendChild(row);
+    dashboardController.markPanel('indicators', 'error');
+    renderPanelMessage(document, $('signalsContainer'), '信号数据暂不可用', 'error');
   }
 }
 
 /* ── Factors ── */
 async function updateFactors() {
+  const signal = nextPanelSignal('factors');
   try {
-    const res = await fetch('/api/factors');
-    if (!res.ok) return;
+    const res = await fetch('/api/factors', { signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = normalizeFactors(await res.json());
     
-    // Update factor tags with safe rendering
-    const tagsEl = $('factorTags');
-    if (tagsEl) {
-      tagsEl.innerHTML = '';
-      for (const f of data.factors) {
-        const span = document.createElement('span');
-        span.className = 'ftag ' + (f.score > 0 ? 'bull' : f.score < 0 ? 'bear' : 'neut');
-        
-        const scoreSpan = document.createElement('span');
-        scoreSpan.className = 'ftag-score';
-        scoreSpan.textContent = (f.score > 0 ? '+' : '') + f.score.toFixed(1);
-        
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'ftag-name';
-        nameSpan.textContent = f.label;
-        
-        span.appendChild(scoreSpan);
-        span.appendChild(nameSpan);
-        tagsEl.appendChild(span);
-      }
-    }
+    renderFactors(document, $('factorTags'), data.factors);
     
     if (data.direction) {
       const dirText = $('dirText');
@@ -373,91 +295,28 @@ async function updateFactors() {
       dirReason.textContent = topFactor.label + ': ' + topFactor.detail;
     }
     
-    // Update market context
-    const contextEl = $('marketContextArea');
-    if (contextEl && data.marketContext) {
-      const mc = data.marketContext;
-      contextEl.innerHTML = '';
-      
-      // Helper to create a context row
-      const createContextRow = (label, value, valueClass = '') => {
-        const row = document.createElement('div');
-        row.className = 'ctx-row';
-        const labelEl = document.createElement('span');
-        labelEl.className = 'ctx-label';
-        labelEl.textContent = label;
-        const valEl = document.createElement('span');
-        valEl.className = 'ctx-val' + (valueClass ? ' ' + valueClass : '');
-        valEl.textContent = value;
-        row.appendChild(labelEl);
-        row.appendChild(valEl);
-        return row;
-      };
-      
-      // Korea session
-      if (mc.koreaSession) {
-        const sessionClass = mc.koreaSession.isRegular ? 'green' : mc.koreaSession.isPreMarket ? 'yellow' : '';
-        contextEl.appendChild(createContextRow('韩股时段', mc.koreaSession.label, sessionClass));
-      }
-      
-      // Regime
-      if (mc.regime) {
-        const regimeClass = mc.regime.mode === 'trend' ? 'green' : mc.regime.mode === 'event' ? 'red' : 'yellow';
-        contextEl.appendChild(createContextRow('市场模式', mc.regime.label, regimeClass));
-        
-        const reasonDiv = document.createElement('div');
-        reasonDiv.className = 'ctx-reason';
-        reasonDiv.textContent = mc.regime.reason;
-        contextEl.appendChild(reasonDiv);
-      }
-      
-      // Funding countdown
-      if (mc.fundingCountdown) {
-        const fundingClass = mc.fundingCountdown.isSoon ? 'yellow' : '';
-        contextEl.appendChild(createContextRow('资金费率', mc.fundingCountdown.label, fundingClass));
-      }
-      
-      // Event window
-      if (mc.eventWindow) {
-        const eventClass = mc.eventWindow.status === 'freeze' ? 'red' : mc.eventWindow.status === 'watch' ? 'yellow' : '';
-        contextEl.appendChild(createContextRow('事件窗口', mc.eventWindow.message, eventClass));
-      }
-      
-      // Basis
-      if (mc.basis && mc.basis.ready) {
-        const basisClass = mc.basis.state === 'extreme' ? 'red' : mc.basis.state === 'stretched' ? 'yellow' : '';
-        contextEl.appendChild(createContextRow('基差', `${mc.basis.currentBasisPct}% (${mc.basis.label})`, basisClass));
-      }
-      
-      // ATR
-      if (mc.atrPct !== undefined) {
-        const atrClass = mc.atrPct >= 3 ? 'red' : mc.atrPct >= 2 ? 'yellow' : '';
-        contextEl.appendChild(createContextRow('波动率', `${mc.atrPct}%`, atrClass));
-      }
-      
-      // Risk
-      if (mc.risk) {
-        const riskClass = mc.risk.blocked ? 'red' : mc.risk.action === 'reduce' ? 'yellow' : 'green';
-        contextEl.appendChild(createContextRow('仓位建议', `${mc.risk.positionPct}%`, riskClass));
-        contextEl.appendChild(createContextRow('杠杆上限', mc.risk.leverageCap, riskClass));
-        
-        // Show warnings/reasons
-        const messages = [...(mc.risk.reasons || []), ...(mc.risk.warnings || [])];
-        if (messages.length > 0) {
-          const warningsDiv = document.createElement('div');
-          warningsDiv.className = 'ctx-warnings';
-          for (const msg of messages.slice(0, 3)) {
-            const warnDiv = document.createElement('div');
-            warnDiv.className = 'ctx-warn';
-            warnDiv.textContent = '⚠ ' + msg;
-            warningsDiv.appendChild(warnDiv);
-          }
-          contextEl.appendChild(warningsDiv);
-        }
-      }
-    }
+    renderMarketContext(document, $('marketContextArea'), data.marketContext);
+    $('riskArea').hidden = !data.risk;
+    $('basisArea').hidden = !data.basis;
+    dashboardController.markPanel('factors', 'ready');
   } catch (e) {
+    if (e.name === 'AbortError') return;
     console.error('Failed to fetch factors:', e);
+    dashboardController.markPanel('factors', 'error');
+    renderPanelMessage(document, $('factorTags'), '因子数据暂不可用', 'error');
+  }
+}
+
+async function updateHealth() {
+  const signal = nextPanelSignal('health');
+  try {
+    const res = await fetch('/api/ticks', { signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    renderSourceHealth(document, $('factorCoverage'), await res.json());
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    console.error('Failed to fetch source health:', e);
+    renderPanelMessage(document, $('factorCoverage'), '数据源健康状态不可用', 'error');
   }
 }
 
@@ -560,7 +419,7 @@ async function runBacktest(optimize = false) {
     }
   } catch (e) {
     console.error('Backtest error:', e);
-    alert('回测失败: ' + e.message);
+    showError('回测失败: ' + e.message);
   } finally {
     if (btn) {
       btn.textContent = optimize ? '优化' : '回测';
@@ -578,25 +437,51 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+function stopSecondarySchedules() {
+  for (const timer of secondaryTimers) clearInterval(timer);
+  secondaryTimers = [];
+  for (const controller of panelRequests.values()) controller.abort();
+}
+
+function startSecondarySchedules() {
+  stopSecondarySchedules();
+  void updateIndicators();
+  void updateFactors();
+  void updateHealth();
+  secondaryTimers = [
+    setInterval(updateIndicators, 30000),
+    setInterval(updateFactors, 60000),
+    setInterval(updateHealth, 60000),
+  ];
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopSecondarySchedules();
+  else startSecondarySchedules();
+});
+
 /* ── Init ── */
 window.addEventListener('DOMContentLoaded', () => {
-  // Create charts
-  state.charts.m1 = makeChart('chart-m1', 'm1');
-  state.charts.m5 = makeChart('chart-m5', 'm5');
-  state.charts.m15 = makeChart('chart-m15', 'm15');
-  state.charts.h1 = makeChart('chart-h1', 'h1');
+  if (window.LightweightCharts) {
+    state.charts.m1 = makeChart('chart-m1', 'm1');
+    state.charts.m5 = makeChart('chart-m5', 'm5');
+    state.charts.m15 = makeChart('chart-m15', 'm15');
+    state.charts.h1 = makeChart('chart-h1', 'h1');
+  } else {
+    document.querySelectorAll('.loading-mask').forEach((element) => {
+      element.classList.add('chart-error');
+      element.textContent = '图表组件不可用';
+    });
+  }
 
-  // Fetch data
-  fetchData();
-  connectSSE();
-  setInterval(fetchData, 10000);
-  fetchBinancePrice();
-  
-  // Fetch indicators and factors
-  updateIndicators();
-  updateFactors();
-  setInterval(updateIndicators, 30000);
-  setInterval(updateFactors, 60000);
+  void dashboardController.start();
+  void fetchBinancePrice();
+  startSecondarySchedules();
+});
+
+window.addEventListener('beforeunload', () => {
+  dashboardController.stop();
+  stopSecondarySchedules();
 });
 
 /* ── Expose to global scope for onclick handlers ── */
@@ -606,9 +491,6 @@ window.toggleCalculator = toggleCalculator;
 window.fpSetDirection = fpSetDirection;
 window.fpUseCurrentPrice = fpUseCurrentPrice;
 window.fpCalculatePnl = fpCalculatePnl;
-window.setDirection = setDirection;
-window.useCurrentPrice = useCurrentPrice;
-window.calculatePnl = calculatePnl;
 window.switchTF = switchTF;
 window.switchCurrency = switchCurrency;
 window.switchSource = switchSource;
