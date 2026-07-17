@@ -40,7 +40,6 @@ body {
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
-  order: 0;
 }
 
 /* Header & Toolbar: full width, no margin */

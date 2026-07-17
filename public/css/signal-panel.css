@@ -1,16 +1,13 @@
 /* ── Signal Panel ── */
 .signal-panel {
   width: 280px;
-  height: 100%;
   background: var(--surface);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(8px);
   overflow: hidden;
-  order: 1;
 }
 .signal-panel.open {
   width: 280px;
