@@ -4,7 +4,7 @@
   "description": "",
   "main": "dist/server.js",
   "scripts": {
-    "test": "npm run build && node --test test/*.test.js && node --test dist/src/contracts/api.test.js",
+    "test": "npm run build && node --test test/*.test.js test/*.test.mjs && node --test dist/src/contracts/api.test.js",
     "test:contract": "npm run build && node --test dist/src/contracts/api.test.js",
     "start": "node dist/server.js",
     "build": "tsc",
