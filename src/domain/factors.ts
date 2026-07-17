@@ -544,8 +544,8 @@ export function calculateAllFactors(params: {
   if (params.fundingRate !== undefined) factors.push(factorFundingRate(params.fundingRate));
   else omittedFactors.push({ category: 'funding', reason: 'stale' });
 
-  if (params.hasRealVolume) factors.push(factorVolume(params.candles));
-  else omittedFactors.push({ category: 'volume', reason: 'unsupported' });
+  // Always include volume factor (uses tick count as proxy)
+  factors.push(factorVolume(params.candles));
 
   if (params.binancePrice !== undefined) {
     factors.push(factorPremium(params.naverPrice, params.binancePrice, params.fxRate));

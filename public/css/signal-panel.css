@@ -473,19 +473,23 @@
   color: var(--yellow); 
   border: 1px solid rgba(240,185,11,0.2);
 }
-.strategy-row {
+.strategy-row, .strat-row {
   display: flex;
   justify-content: space-between;
   padding: 4px 0;
   border-bottom: 1px solid rgba(255,255,255,0.03);
   font-size: 11px;
 }
-.strategy-row:last-child { border-bottom: none; }
-.strategy-kw { color: var(--text); }
-.strategy-val { 
+.strategy-row:last-child, .strat-row:last-child { border-bottom: none; }
+.strategy-kw, .strat-kw { 
+  color: var(--text);
+  font-size: 10px;
+}
+.strategy-val, .strat-val { 
   color: var(--text-bright); 
   font-family: 'JetBrains Mono', monospace;
   font-weight: 500;
+  font-size: 11px;
 }
 .strat-evidence {
   margin-top: 8px; 
