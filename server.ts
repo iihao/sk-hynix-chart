@@ -1,4 +1,3 @@
-// @ts-nocheck
 import express, { Request, Response } from 'express';
 import https from 'https';
 import http from 'http';
@@ -40,6 +39,7 @@ import {
 import {
   calculateAllIndicators,
   IndicatorsData,
+  IndicatorResult,
   Signal,
   SupportResistance,
 } from './src/domain/indicators';
@@ -59,6 +59,9 @@ import {
   optimizeWeights,
   BacktestParams,
   BacktestResult,
+  BacktestBinanceTick,
+  BacktestSentimentRow,
+  BacktestMetrics,
 } from './src/domain/backtest';
 import {
   DashboardSnapshot,
@@ -252,7 +255,7 @@ function fetchJSON<T = any>(url: string): Promise<T> {
       res.on('error', reject);
     });
     req.on('error', reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.setTimeout(20000, () => { req.destroy(); reject(new Error('timeout')); });
   });
 }
 
@@ -311,6 +314,18 @@ function fetchJSONViaProxy<T = any>(url: string, proxyUrl: string): Promise<T> {
   });
 }
 
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): Promise<T> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i === retries) throw err;
+      await new Promise(r => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw new Error('unreachable');
+}
+
 function fetchText(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const req = https.get(url, {
@@ -328,7 +343,7 @@ function fetchText(url: string): Promise<string> {
       res.on('error', reject);
     });
     req.on('error', reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.setTimeout(20000, () => { req.destroy(); reject(new Error('timeout')); });
   });
 }
 
@@ -510,7 +525,7 @@ async function recordTick() {
 }
 
 // Build candles from SQLite ticks (uses after_hours_price when available)
-function buildCandlesFromTicks(ticks, intervalSec) {
+function buildCandlesFromTicks(ticks: TickData[], intervalSec: number) {
   if (!ticks.length) return [];
   const candles = [];
   const effectivePrice = t => t.after_hours_price || (t as any).price;
@@ -560,7 +575,7 @@ async function naverChart(interval, range) {
   }
 
   const from = now - rangeSec;
-  const ticks = selectRange.all(from, now);
+  const ticks = selectRange.all(from, now) as TickData[];
   const candles = buildCandlesFromTicks(ticks, intervalSec);
 
   // Use after-hours price when market is closed but OTC is open
@@ -648,7 +663,7 @@ async function recordBinanceTick() {
   }
 }
 
-function buildBinanceCandlesFromTicks(ticks, intervalSec) {
+function buildBinanceCandlesFromTicks(ticks: BinanceTickData[], intervalSec: number) {
   if (!ticks.length) return [];
   const candles = [];
   let bucket = Math.floor(ticks[0].ts / intervalSec) * intervalSec;
@@ -674,7 +689,7 @@ function buildBinanceCandlesFromTicks(ticks, intervalSec) {
   return candles;
 }
 
-function getBinanceLocal(interval) {
+function getBinanceLocal(interval: string) {
   const now = Math.floor(Date.now() / 1000);
   let rangeSec, intervalSec;
   switch (interval) {
@@ -684,7 +699,7 @@ function getBinanceLocal(interval) {
     case '1h':  rangeSec = 90*86400;   intervalSec = 3600; break;  // 90天
     default:    rangeSec = 7*86400;    intervalSec = 300;
   }
-  const ticks = selectBinanceRange.all(now - rangeSec, now);
+  const ticks = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
   const candles = buildBinanceCandlesFromTicks(ticks, intervalSec);
   const latest = selectBinanceLatest.get();
   const line = candles.map(k => ({ time: k.time, value: k.close }));
@@ -705,7 +720,7 @@ function getBinanceLocal(interval) {
   };
 }
 
-async function binanceFetch(path) {
+async function binanceFetch(path: string) {
   if (isBinanceCircuitOpen()) {
     throw new Error('Binance circuit breaker open');
   }
@@ -726,7 +741,7 @@ async function binanceFetch(path) {
   throw lastErr || new Error('All Binance endpoints failed');
 }
 
-async function binanceKlines(interval, limit) {
+async function binanceKlines(interval: string, limit: number) {
   const data = await binanceFetch(`/fapi/v1/klines?symbol=${BINANCE_SYMBOL}&interval=${interval}&limit=${limit}`);
   if (!Array.isArray(data)) throw new Error('Binance klines: expected array');
   return data.map(k => ({
@@ -863,7 +878,7 @@ async function fetchBinanceSentiment() {
 }
 
 // Map our timeframe to Binance interval + limit
-function binanceParams(interval) {
+function binanceParams(interval: string) {
   switch (interval) {
     case '1m':  return { interval: '1m',  limit: 1440 };   // ~3d
     case '5m':  return { interval: '5m',  limit: 2016 };   // ~7d
@@ -873,7 +888,7 @@ function binanceParams(interval) {
   }
 }
 
-async function binanceLine(interval, sharedMeta) {
+async function binanceLine(interval: string, sharedMeta: BinanceMeta | null) {
   try {
     const { interval: bnInterval, limit } = binanceParams(interval);
     const klines = await binanceKlines(bnInterval, limit);
@@ -907,8 +922,8 @@ async function getAllTimeframes(source = 'yahoo') {
     }
     const now = Math.floor(Date.now() / 1000);
   const displayPrice = (!basic.marketOpen && basic.afterHours) ? (basic.afterHours as any).price : (basic as any).price;
-    const makeResult = (rangeSec, intervalSec) => {
-      const ticks = selectRange.all(now - rangeSec, now);
+    const makeResult = (rangeSec: number, intervalSec: number) => {
+      const ticks = selectRange.all(now - rangeSec, now) as TickData[];
       const candles = buildCandlesFromTicks(ticks, intervalSec);
       return {
         source: 'naver',
@@ -1062,7 +1077,7 @@ app.post('/api/source', express.json(), (req, res) => {
 // ══════════════════════════════════════════
 //  Quantitative Indicators Engine
 // ══════════════════════════════════════════
-function calcSMA(closes, period) {
+function calcSMA(closes: number[], period: number) {
   const result = [];
   for (let i = 0; i < closes.length; i++) {
     if (i < period - 1) { result.push(null); continue; }
@@ -1073,7 +1088,7 @@ function calcSMA(closes, period) {
   return result;
 }
 
-function calcEMA(closes, period) {
+function calcEMA(closes: number[], period: number) {
   const k = 2 / (period + 1);
   const result = [closes[0]];
   for (let i = 1; i < closes.length; i++) {
@@ -1136,9 +1151,9 @@ function calcBollinger(closes, period = 20, mult = 2) {
   return { upper, mid, lower };
 }
 
-function detectSignals(closes, times, indicators) {
+function detectSignals(closes: number[], times: number[], indicators: IndicatorsData) {
   const signals = [];
-  const { ma5, ma20, rsi, dif, dea, hist, bollUpper, bollLower } = indicators;
+  const { ma5, ma20, rsi, macd, bollinger } = indicators;
   const len = closes.length;
   if (len < 3) return signals;
 
@@ -1166,22 +1181,22 @@ function detectSignals(closes, times, indicators) {
 
   // MACD Crossover
   for (let i = Math.max(26, len - 50); i < len; i++) {
-    if (dif[i] == null || dea[i] == null || dif[i-1] == null || dea[i-1] == null) continue;
-    if (dif[i-1] <= dea[i-1] && dif[i] > dea[i]) {
+    if (macd.dif[i] == null || macd.dea[i] == null || macd.dif[i-1] == null || macd.dea[i-1] == null) continue;
+    if (macd.dif[i-1] <= macd.dea[i-1] && macd.dif[i] > macd.dea[i]) {
       signals.push({ type: 'macd_golden', label: 'MACD 金叉', direction: 'long', time: times[i] });
     }
-    if (dif[i-1] >= dea[i-1] && dif[i] < dea[i]) {
+    if (macd.dif[i-1] >= macd.dea[i-1] && macd.dif[i] < macd.dea[i]) {
       signals.push({ type: 'macd_death', label: 'MACD 死叉', direction: 'short', time: times[i] });
     }
   }
 
   // Bollinger Breakout
   for (let i = Math.max(20, len - 50); i < len; i++) {
-    if (bollUpper[i] == null || bollLower[i] == null) continue;
-    if (closes[i] > bollUpper[i] && closes[i-1] <= bollUpper[i-1]) {
+    if (bollinger.upper[i] == null || bollinger.lower[i] == null) continue;
+    if (closes[i] > bollinger.upper[i] && closes[i-1] <= bollinger.upper[i-1]) {
       signals.push({ type: 'boll_breakup', label: '突破布林上轨', direction: 'short', time: times[i] });
     }
-    if (closes[i] < bollLower[i] && closes[i-1] >= bollLower[i-1]) {
+    if (closes[i] < bollinger.lower[i] && closes[i-1] >= bollinger.lower[i-1]) {
       signals.push({ type: 'boll_breakdown', label: '跌破布林下轨', direction: 'long', time: times[i] });
     }
   }
@@ -1191,7 +1206,7 @@ function detectSignals(closes, times, indicators) {
   return signals;
 }
 
-function findSupportResistance(candles) {
+function findSupportResistance(candles: Array<{ high: number; low: number; close: number }>) {
   const highs = candles.map(c => c.high);
   const lows = candles.map(c => c.low);
   const closes = candles.map(c => c.close);
@@ -1243,7 +1258,7 @@ app.get('/api/indicators', (req, res) => {
   try {
     const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
     const now = Math.floor(Date.now() / 1000);
-    const ticks = selectRange.all(now - rangeSec, now);
+    const ticks = selectRange.all(now - rangeSec, now) as TickData[];
     
     if (ticks.length < 2) {
       return res.json({ rsi: [], macd: { dif: [], dea: [], histogram: [] }, bollinger: { upper: [], mid: [], lower: [] }, ma5: [], ma20: [], volRatio: [], latest: null, signals: [], support: [], resistance: [], times: [] });
@@ -1291,9 +1306,9 @@ app.get('/api/indicators', (req, res) => {
 // ══════════════════════════════════════════
 //  Impact Factor Analysis Engine
 // ══════════════════════════════════════════
-function clampScore(v) { return Math.max(-10, Math.min(10, v)); }
+function clampScore(v: number) { return Math.max(-10, Math.min(10, v)); }
 
-function factorMomentum(candles) {
+function factorMomentum(candles: Candle[]) {
   if (candles.length < 2) return { score: 0, weight: 0, detail: '数据不足' };
   const last = candles[candles.length - 1].close;
   // Short-term: last 12 candles (~1h for 5m tf)
@@ -1316,7 +1331,7 @@ function factorMomentum(candles) {
   };
 }
 
-function factorFundingRate(binanceTicks) {
+function factorFundingRate(binanceTicks: BinanceTickData[]) {
   if (binanceTicks.length < 2) return { score: 0, weight: 0, detail: '数据不足' };
   const recent = binanceTicks.slice(-20);
   const latest = recent[recent.length - 1];
@@ -1340,7 +1355,7 @@ function factorFundingRate(binanceTicks) {
   };
 }
 
-function factorVolume(candles) {
+function factorVolume(candles: Candle[]) {
   if (candles.length < 5) return { score: 0, weight: 0, detail: '数据不足' };
   const vols = candles.map(c => c.volume);
   const closes = candles.map(c => c.close);
@@ -1362,7 +1377,7 @@ function factorVolume(candles) {
   };
 }
 
-function factorVolatility(candles) {
+function factorVolatility(candles: Candle[]) {
   if (candles.length < 15) return { score: 0, weight: 0, detail: '数据不足' };
   // ATR(14) as % of price
   let atrSum = 0;
@@ -1404,11 +1419,11 @@ function factorExchangeRate() {
   };
 }
 
-function factorPremium(naverLatest, binanceLatest) {
+function factorPremium(naverLatest: NaverBasic, binanceLatest: BinanceTickData) {
   if (!naverLatest || !binanceLatest) return { score: 0, weight: 0, detail: '数据不足' };
-  const naverKRW = naverLatest.after_hours_price || (naverLatest as any).price;
+  const naverKRW = naverLatest.afterHours?.price || naverLatest.price;
   const naverUSD = naverKRW / krwUsdRate;
-  const bnPrice = (binanceLatest as any).price;
+  const bnPrice = binanceLatest.price;
   const premium = (bnPrice - naverUSD) / naverUSD * 100;
   // Positive premium = market expects upside = bullish
   let score = clampScore(premium * 2);
@@ -1419,12 +1434,12 @@ function factorPremium(naverLatest, binanceLatest) {
   };
 }
 
-function factorIndicatorMomentum(indicators) {
+function factorIndicatorMomentum(indicators: IndicatorResult) {
   if (!indicators) return { score: 0, weight: 0, detail: '数据不足' };
   const rsi = indicators.rsi;
-  const macdHist = indicators.macdHist;
-  const macdDif = indicators.macdDif;
-  const macdDea = indicators.macdDea;
+  const macdHist = indicators.macd?.histogram;
+  const macdDif = indicators.macd?.dif;
+  const macdDea = indicators.macd?.dea;
   // RSI: 50 = neutral, >70 = overbought, <30 = oversold
   const rsiScore = rsi != null ? (rsi - 50) / 5 : 0; // -10 to +10
   // MACD: positive histogram = bullish
@@ -1439,7 +1454,7 @@ function factorIndicatorMomentum(indicators) {
   };
 }
 
-function factorSupportResistance(candles, sr) {
+function factorSupportResistance(candles: Candle[], sr: { support: SupportResistance[]; resistance: SupportResistance[] }) {
   if (!sr || (!sr.support?.length && !sr.resistance?.length) || !candles.length) {
     return { score: 0, weight: 0, detail: '数据不足' };
   }
@@ -1474,7 +1489,7 @@ function factorSupportResistance(candles, sr) {
 }
 
 // ═══ New Sentiment Factors ═══
-function factorLongShortRatio(sentiment) {
+function factorLongShortRatio(sentiment: { ls_ratio: number; ls_long_pct?: number; top_ls_ratio?: number; top_long_pct?: number }) {
   if (!sentiment) return { score: 0, weight: 0, detail: '数据不足' };
   const ratio = sentiment.ls_ratio || 1;
   const longPct = sentiment.ls_long_pct || 0.5;
@@ -1502,7 +1517,7 @@ function factorLongShortRatio(sentiment) {
   };
 }
 
-function factorTakerVolume(sentiment) {
+function factorTakerVolume(sentiment: { taker_buy_vol: number; taker_sell_vol: number; taker_ratio?: number }) {
   if (!sentiment) return { score: 0, weight: 0, detail: '数据不足' };
   const ratio = sentiment.taker_ratio || 1;
   const buyVol = sentiment.taker_buy_vol || 0;
@@ -1526,7 +1541,7 @@ function factorTakerVolume(sentiment) {
   };
 }
 
-function factorOpenInterest(sentimentRows, candles) {
+function factorOpenInterest(sentimentRows: BacktestSentimentRow[], candles: Candle[]) {
   const rows = Array.isArray(sentimentRows) ? sentimentRows : (sentimentRows ? [sentimentRows] : []);
   const latest = rows[rows.length - 1];
   if (!latest || !candles || candles.length < 5) return { score: 0, weight: 0, detail: '数据不足' };
@@ -1657,7 +1672,7 @@ async function fetchNewsSentiment() {
   // Try Bing News RSS first (reliable, English headlines)
   try {
     const url = 'https://www.bing.com/news/search?q=SK+hynix+HBM&format=rss';
-    const xml = await fetchText(url);
+    const xml = await withRetry(() => fetchText(url));
     const parsed = parseGoogleNewsRss(xml, NEWS_POSITIVE, NEWS_NEGATIVE, { limit: 15, maxAgeHours: 168 });
     if (parsed.headlines.length > 0) {
       newsSentiment = {
@@ -1683,7 +1698,7 @@ async function fetchNewsSentiment() {
   // Fallback: try Yahoo Finance RSS
   try {
     const url = 'https://feeds.finance.yahoo.com/rss/2.0/headline?s=000660.KS&region=KR&lang=ko-KR';
-    const xml = await fetchText(url);
+    const xml = await withRetry(() => fetchText(url));
     const parsed = parseGoogleNewsRss(xml, NEWS_POSITIVE, NEWS_NEGATIVE, { limit: 15, maxAgeHours: 168 });
     if (parsed.headlines.length > 0) {
       newsSentiment = {
@@ -1725,7 +1740,7 @@ function factorNewsSentiment() {
 fetchNewsSentiment();
 setInterval(() => { fetchNewsSentiment(); }, 1800000);
 
-function generateFactorSummary(factors, composite) {
+function generateFactorSummary(factors: Factor[], composite: number) {
   const parts = [];
   const bullish = factors.filter(f => f.score > 2);
   const bearish = factors.filter(f => f.score < -2);
@@ -1744,7 +1759,7 @@ function generateFactorSummary(factors, composite) {
   return parts.join('，');
 }
 
-function calcAtrPctFromCandles(candles, period = 14) {
+function calcAtrPctFromCandles(candles: Candle[], period: number = 14) {
   if (!candles || candles.length <= period) return 0;
   let atrSum = 0;
   for (let i = candles.length - period; i < candles.length; i++) {
@@ -1761,14 +1776,14 @@ function calcAtrPctFromCandles(candles, period = 14) {
   return lastClose ? atrSum / period / lastClose * 100 : 0;
 }
 
-function calcFactorConsensus(factors) {
+function calcFactorConsensus(factors: Factor[]) {
   if (!factors || !factors.length) return 0;
   const bullish = factors.filter(f => f.score > 2).length;
   const bearish = factors.filter(f => f.score < -2).length;
   return Math.abs(bullish - bearish) / factors.length;
 }
 
-function calcScoreConsensus(scores) {
+function calcScoreConsensus(scores: number[]) {
   const values = Object.values(scores || {}).filter(
     (value): value is number => typeof value === 'number' && Number.isFinite(value),
   );
@@ -1778,7 +1793,7 @@ function calcScoreConsensus(scores) {
   return Math.abs(bullish - bearish) / values.length;
 }
 
-function applyRiskToStrategy(strategy, risk, context = {}) {
+function applyRiskToStrategy(strategy: Strategy, risk: RiskOverlay, context: Record<string, unknown> = {}) {
   const next = {
     ...strategy,
     risk,
@@ -1789,7 +1804,7 @@ function applyRiskToStrategy(strategy, risk, context = {}) {
     maxSingleLoss: `${risk.maxSingleLossPct}%`,
     maxDailyLoss: `${risk.maxDailyLossPct}%`,
     openingStatus: risk.blocked ? '禁止新开仓' : risk.action === 'flat' ? '等待信号' : risk.action === 'reduce' ? '只允许缩量开仓' : '正常',
-  };
+  } as any;
 
   if (risk.blocked && next.direction !== '观望') {
     next.blockedDirection = next.direction;
@@ -1805,7 +1820,7 @@ function applyRiskToStrategy(strategy, risk, context = {}) {
     next.warnings = [...risk.warnings, ...next.warnings];
   }
 
-  if (next.direction !== '观望') (next as any).leverage = risk.leverageCap;
+  if (next.direction !== '观望') next.leverage = risk.leverageCap;
   return next;
 }
 
@@ -1824,7 +1839,7 @@ app.get('/api/factors', (req, res) => {
   try {
     const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
     const now = Math.floor(Date.now() / 1000);
-    const ticks = selectRange.all(now - rangeSec, now);
+    const ticks = selectRange.all(now - rangeSec, now) as TickData[];
     
     if (ticks.length < 2) {
       return res.json({ factors: [], composite: 0, direction: 'neutral', confidence: 0 });
@@ -1870,6 +1885,11 @@ app.get('/api/factors', (req, res) => {
       priceChange: latestOi > 0 && previousOi > 0 && previousClose > 0
         ? (latestClose - previousClose) / previousClose * 100
         : undefined,
+      sentimentRows: sentimentRows.length > 0 ? sentimentRows : undefined,
+      newsScore: newsSentiment.score || 0,
+      newsPositive: (newsSentiment as any).positive || 0,
+      newsNegative: (newsSentiment as any).negative || 0,
+      newsTopHeadline: newsSentiment.headlines?.[0] || '',
       weights: activeWeights,
     });
     
@@ -1896,19 +1916,19 @@ let activeParams = { entryThreshold: 2.0, holdBars: 12, stopLossPct: 3.0, takePr
 let lastOptimizeTime = 0;
 let optimizeRunning = false;
 
-function toDomainBacktestParams(params, weights = activeWeights) {
+function toDomainBacktestParams(params: Record<string, unknown>, weights: Record<string, number> = activeWeights): BacktestParams {
   return {
-    threshold: params.entryThreshold ?? params.threshold,
-    holdBars: params.holdBars,
-    stopLossPct: params.stopLossPct,
-    takeProfitPct: params.takeProfitPct,
-    leverage: params.leverage,
+    threshold: (params.entryThreshold ?? params.threshold) as number,
+    holdBars: params.holdBars as number,
+    stopLossPct: params.stopLossPct as number,
+    takeProfitPct: params.takeProfitPct as number,
+    leverage: params.leverage as number,
     weights: { ...weights },
     fxRate: krwUsdRate,
   };
 }
 
-function scoreBacktestResult(metrics) {
+function scoreBacktestResult(metrics: BacktestMetrics) {
   return (metrics.sharpe || 0) * Math.sqrt(metrics.totalTrades) *
     (metrics.winRate / 100) - metrics.maxDrawdown / 10;
 }
@@ -1919,10 +1939,10 @@ async function autoOptimize() {
   try {
     const now = Math.floor(Date.now() / 1000);
     const rangeSec = 7 * 86400;
-    const ticks = selectRange.all(now - rangeSec, now);
+    const ticks = selectRange.all(now - rangeSec, now) as TickData[];
     const candles = ticks.length > 1 ? buildCandlesFromTicks(ticks, 300) : [];
-    const binanceWindow = selectBinanceRange.all(now - rangeSec, now);
-    const sentimentData = selectSentimentRange.all(now - rangeSec, now);
+    const binanceWindow = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
+    const sentimentData = selectSentimentRange.all(now - rangeSec, now) as BacktestSentimentRow[];
 
     if (candles.length < 50) {
       console.log('[optimize] not enough data, skipping');
@@ -1991,9 +2011,9 @@ async function autoOptimize() {
     const optimizedParams = toDomainBacktestParams({ ...bestParams, leverage: 5 }, bestWeights);
     const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, optimizedParams);
     // Validate on test set (out-of-sample)
-    const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, optimizedParams);
+    const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], optimizedParams);
     // Full dataset validation
-    const fullResult = backtestEngine(candles, binanceWindow, sentimentData, optimizedParams);
+    const fullResult = backtestEngine(candles, binanceWindow as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], optimizedParams);
 
     activeWeights = bestWeights;
     activeParams = { ...activeParams, ...bestParams };
@@ -2014,7 +2034,7 @@ async function autoOptimize() {
   }
 }
 
-function calcCandlesForWindow(ticks, from, to, intervalSec) {
+function calcCandlesForWindow(ticks: TickData[], from: number, to: number, intervalSec: number) {
   const windowTicks = ticks.filter(t => (t as any).ts >= from && (t as any).ts < to);
   return windowTicks.length > 1 ? buildCandlesFromTicks(windowTicks, intervalSec) : [];
 }
@@ -2044,7 +2064,7 @@ app.get('/api/backtest', async (req, res) => {
     const { entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage } = parsedParams;
 
     const now = Math.floor(Date.now() / 1000);
-    const ticks = selectRange.all(now - rangeSec, now);
+    const ticks = selectRange.all(now - rangeSec, now) as TickData[];
     const candles = ticks.length > 1 ? buildCandlesFromTicks(ticks, intervalSec) : [];
 
     if (candles.length < 50) {
@@ -2054,8 +2074,8 @@ app.get('/api/backtest', async (req, res) => {
       });
     }
 
-    const binanceWindow = selectBinanceRange.all(now - rangeSec, now);
-    const sentimentData = selectSentimentRange.all(now - rangeSec, now);
+    const binanceWindow = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
+    const sentimentData = selectSentimentRange.all(now - rangeSec, now) as BacktestSentimentRow[];
 
     // Train/test split (70/30)
     const splitIdx = Math.floor(candles.length * 0.7);
@@ -2070,9 +2090,9 @@ app.get('/api/backtest', async (req, res) => {
       await autoOptimize();
       // Run on full, train, and test sets
       const optimizedParams = toDomainBacktestParams({ ...activeParams, leverage }, activeWeights);
-      const fullResult = backtestEngine(candles, binanceWindow, sentimentData, optimizedParams);
+      const fullResult = backtestEngine(candles, binanceWindow as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], optimizedParams);
       const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, optimizedParams);
-      const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, optimizedParams);
+      const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], optimizedParams);
       res.json({
         params: { tf, optimize: true, ...activeParams },
         ...fullResult,
@@ -2085,9 +2105,9 @@ app.get('/api/backtest', async (req, res) => {
     } else {
       const requestedParams = toDomainBacktestParams(
         { entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage }, activeWeights);
-      const fullResult = backtestEngine(candles, binanceWindow, sentimentData, requestedParams);
+      const fullResult = backtestEngine(candles, binanceWindow as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], requestedParams);
       const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, requestedParams);
-      const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, requestedParams);
+      const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], requestedParams);
       res.json({
         params: { tf, entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage },
         ...fullResult,

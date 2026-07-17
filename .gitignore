@@ -6,3 +6,5 @@ node_modules/
 tmp-*.log
 dist/
 dist-test/
+server.js
+lib/*.js

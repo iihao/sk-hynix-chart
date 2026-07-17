@@ -357,6 +357,108 @@ export function factorOpenInterest(oiChange: number, priceChange: number): Facto
   };
 }
 
+export function factorLongShortTrend(sentimentRows: Array<{ ts: number; ls_ratio: number }>): Factor {
+  if (!sentimentRows || sentimentRows.length < 2) {
+    return { category: 'lsTrend', label: '多空趋势', score: 0, weight: 0.6, detail: '数据不足' };
+  }
+  
+  const unique: typeof sentimentRows = [];
+  const seen = new Set<number>();
+  for (const r of sentimentRows) {
+    const key = Math.floor(r.ts / 3600);
+    if (!seen.has(key)) { seen.add(key); unique.push(r); }
+  }
+  if (unique.length < 2) {
+    return { category: 'lsTrend', label: '多空趋势', score: 0, weight: 0.6, detail: '数据不足' };
+  }
+  
+  const latest = unique[unique.length - 1].ls_ratio;
+  const earliest = unique[0].ls_ratio;
+  const trend = latest - earliest;
+  const prevHour = unique.length >= 2 ? unique[unique.length - 2].ls_ratio : latest;
+  const shortTrend = latest - prevHour;
+  
+  let score = 0;
+  if (latest > 2.5 && shortTrend > 0.1) score = -3;
+  else if (latest > 2 && shortTrend > 0.05) score = -2;
+  else if (latest < 0.7 && shortTrend < -0.1) score = 3;
+  else if (latest < 0.8 && shortTrend < -0.05) score = 2;
+  else if (trend > 0.3) score = 1;
+  else if (trend < -0.3) score = -1;
+  else if (latest > 1.8) score = 1;
+  else if (latest < 0.9) score = -1;
+  
+  const arrow = shortTrend > 0.05 ? '↑多' : shortTrend < -0.05 ? '↑空' : '→平';
+  return {
+    category: 'lsTrend',
+    label: '多空趋势',
+    score: clampScore(score),
+    weight: 0.6,
+    detail: `${unique.length}h趋势 ${arrow} | 比值 ${earliest.toFixed(2)} → ${latest.toFixed(2)}`,
+  };
+}
+
+export function factorWhaleActivity(sentimentRows: Array<{ ts: number; top_ls_ratio: number }>): Factor {
+  if (!sentimentRows || sentimentRows.length < 2) {
+    return { category: 'whale', label: '庄家动向', score: 0, weight: 0.75, detail: '数据不足' };
+  }
+  
+  const unique: typeof sentimentRows = [];
+  const seen = new Set<number>();
+  for (const r of sentimentRows) {
+    const key = Math.floor(r.ts / 3600);
+    if (!seen.has(key) && r.top_ls_ratio > 0) { seen.add(key); unique.push(r); }
+  }
+  if (unique.length < 2) {
+    return { category: 'whale', label: '庄家动向', score: 0, weight: 0.75, detail: '数据不足' };
+  }
+  
+  const latest = unique[unique.length - 1].top_ls_ratio;
+  const earliest = unique[0].top_ls_ratio;
+  const trend = latest - earliest;
+  const prevHour = unique.length >= 2 ? unique[unique.length - 2].top_ls_ratio : latest;
+  const shortTrend = latest - prevHour;
+  
+  let score = 0;
+  if (latest > 2 && shortTrend > 0.1) score = 4;
+  else if (latest > 1.5 && shortTrend > 0.05) score = 2;
+  else if (latest < 0.7 && shortTrend < -0.1) score = -4;
+  else if (latest < 0.8 && shortTrend < -0.05) score = -2;
+  else if (latest > 1.8 && trend > 0.2) score = 2;
+  else if (latest < 0.9 && trend < -0.2) score = -2;
+  else if (latest > 1.8) score = 1;
+  else if (latest < 0.9) score = -1;
+  
+  return {
+    category: 'whale',
+    label: '庄家动向',
+    score: clampScore(score),
+    weight: 0.75,
+    detail: `大户 ${(latest/(1+latest)*100).toFixed(0)}%多 | 短期${shortTrend > 0.05 ? '↑' : shortTrend < -0.05 ? '↓' : '→'} 24h${trend > 0.2 ? '↑' : trend < -0.2 ? '↓' : '→'}`,
+  };
+}
+
+export function factorNewsSentiment(newsScore: number, positiveCount: number, negativeCount: number, topHeadline: string): Factor {
+  if (!newsScore && !positiveCount && !negativeCount) {
+    return { category: 'news', label: '新闻情绪', score: 0, weight: 0.5, detail: '暂无新闻数据' };
+  }
+  
+  let score = 0;
+  if (newsScore > 3) score = 3;
+  else if (newsScore > 1) score = 2;
+  else if (newsScore < -3) score = -3;
+  else if (newsScore < -1) score = -2;
+  else score = Math.round(newsScore);
+  
+  return {
+    category: 'news',
+    label: '新闻情绪',
+    score: clampScore(score),
+    weight: 0.5,
+    detail: `正面${positiveCount}条 负面${negativeCount}条 | ${(topHeadline || '').slice(0, 30)}`,
+  };
+}
+
 export function calculateAllFactors(params: {
   candles: Array<{ close: number; high: number; low: number; volume: number }>;
   fundingRate: number;
@@ -374,6 +476,11 @@ export function calculateAllFactors(params: {
   sellVol?: number;
   oiChange?: number;
   priceChange?: number;
+  sentimentRows?: Array<{ ts: number; ls_ratio: number; top_ls_ratio: number }>;
+  newsScore?: number;
+  newsPositive?: number;
+  newsNegative?: number;
+  newsTopHeadline?: string;
   weights?: Record<string, number>;
 }): FactorResult {
   const factors: Factor[] = [
@@ -395,6 +502,18 @@ export function calculateAllFactors(params: {
   }
   if (params.oiChange !== undefined && params.priceChange !== undefined) {
     factors.push(factorOpenInterest(params.oiChange, params.priceChange));
+  }
+  if (params.sentimentRows && params.sentimentRows.length > 0) {
+    factors.push(factorLongShortTrend(params.sentimentRows));
+    factors.push(factorWhaleActivity(params.sentimentRows));
+  }
+  if (params.newsScore !== undefined || params.newsPositive !== undefined) {
+    factors.push(factorNewsSentiment(
+      params.newsScore || 0,
+      params.newsPositive || 0,
+      params.newsNegative || 0,
+      params.newsTopHeadline || '',
+    ));
   }
   
   const { composite, direction, confidence } = calculateWeightedComposite(factors, params.weights);
