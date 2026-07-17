@@ -665,6 +665,58 @@ async function recordBinanceTick() {
   }
 }
 
+// Backfill missing Binance ticks using klines API
+async function backfillBinanceTicks() {
+  if (isBinanceCircuitOpen()) return;
+  try {
+    const latest = selectBinanceLatest.get() as any;
+    if (!latest?.ts) return;
+    const lastTs = latest.ts;
+    const now = Math.floor(Date.now() / 1000);
+    const gap = now - lastTs;
+    // Only backfill if gap > 60 seconds
+    if (gap < 60) return;
+
+    console.log(`[binance-backfill] gap=${gap}s (~${Math.round(gap/60)}min), fetching klines...`);
+
+    let currentStart = (lastTs + 1) * 1000;
+    let totalInserted = 0;
+
+    // Paginate through klines (max 1500 per request)
+    while (currentStart < now * 1000) {
+      const data = await binanceFetch(`/fapi/v1/klines?symbol=${BINANCE_SYMBOL}&interval=1m&startTime=${currentStart}&limit=1500`);
+
+      if (!Array.isArray(data) || data.length === 0) break;
+
+      for (const k of data) {
+        const ts = Math.floor(k[0] / 1000);
+        const close = parseFloat(k[4]);
+        const high = parseFloat(k[2]);
+        const low = parseFloat(k[3]);
+        const vol = parseFloat(k[5]);
+        if (ts <= lastTs) continue;
+        insertBinanceTick.run(ts, close, close, close, 0, high, low, vol);
+        totalInserted++;
+      }
+
+      // Move to next page
+      const lastKlineTime = data[data.length - 1][0];
+      currentStart = lastKlineTime + 60000; // +1 minute
+
+      // Break if we got less than limit (no more data)
+      if (data.length < 1500) break;
+    }
+
+    if (totalInserted > 0) {
+      console.log(`[binance-backfill] inserted ${totalInserted} ticks from klines`);
+    } else {
+      console.log('[binance-backfill] no new ticks to insert');
+    }
+  } catch (err) {
+    console.error('[binance-backfill] error:', err.message);
+  }
+}
+
 function buildBinanceCandlesFromTicks(ticks: BinanceTickData[], intervalSec: number) {
   if (!ticks.length) return [];
   const candles = [];
@@ -2308,6 +2360,9 @@ setInterval(() => { recordTick(); }, 60000);
 // Record Binance tick every 30s for local fallback
 setInterval(() => { recordBinanceTick(); }, 30000);
 
+// Backfill missing Binance ticks every 5 minutes
+setInterval(() => { backfillBinanceTicks(); }, 300000);
+
 // Fetch Binance sentiment data every 5 minutes
 fetchBinanceSentiment();
 setInterval(() => { fetchBinanceSentiment(); }, 300000);
@@ -2326,5 +2381,6 @@ app.listen(PORT, () => {
   // Record first tick immediately
   recordTick();
   recordBinanceTick();
+  backfillBinanceTicks();
   broadcast();
 });
