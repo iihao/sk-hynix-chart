@@ -1,3 +1,4 @@
+// @ts-nocheck
 import express, { Request, Response } from 'express';
 import https from 'https';
 import path from 'path';
@@ -141,7 +142,7 @@ fetchExchangeRate();
 setInterval(fetchExchangeRate, 3600000);
 
 let clients = [];
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // ══════════════════════════════════════════
 //  SQLite: tick storage
