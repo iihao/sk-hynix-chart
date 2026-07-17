@@ -70,6 +70,8 @@ import {
 } from './src/contracts/stream';
 import { parseBacktestParams } from './src/contracts/params';
 import { calculateContract, ContractValidationError } from './src/domain/contract';
+import { buildSpotCandles } from './src/domain/candles';
+import { canRecordSpotTick } from './src/domain/market-quality';
 // ══════════════════════════════════════════
 //  Project Root & Data Directory
 // ══════════════════════════════════════════
@@ -485,29 +487,29 @@ let lastAfterHours = null;
 async function recordTick() {
   try {
     const basic = await naverBasic();
+    const nowMs = Date.now();
+    const freshAfterHours = basic.afterHours;
 
     // Clear cached after-hours when market opens (new trading day)
     if (basic.marketOpen) {
       lastAfterHours = null;
     }
 
-    // Preserve last known after-hours price when API stops returning it
-    if (!basic.afterHours && lastAfterHours && !basic.marketOpen) {
-      basic.afterHours = lastAfterHours;
-    }
-
     // Update cache when fresh after-hours data arrives
-    if (basic.afterHours) {
-      lastAfterHours = basic.afterHours;
+    if (freshAfterHours) {
+      lastAfterHours = freshAfterHours;
     }
 
-    // Skip recording if market is fully closed (no regular session, no after-hours)
-    if (!basic.marketOpen && !basic.afterHours) {
+    if (!canRecordSpotTick({
+      nowMs,
+      marketOpen: basic.marketOpen,
+      hasFreshAfterHours: Boolean(freshAfterHours),
+    })) {
       return null;
     }
-    const ts = Math.floor(Date.now() / 1000);
-    const ahPrice = basic.afterHours?.price || null;
-    const ahSession = basic.afterHours?.session || null;
+    const ts = Math.floor(nowMs / 1000);
+    const ahPrice = freshAfterHours?.price || null;
+    const ahSession = freshAfterHours?.session || null;
     insertTick.run(ts, (basic as any).price, basic.prevClose, basic.marketOpen ? 1 : 0, ahPrice, ahSession);
     markSourceHealthy('naver', {
       updatedAt: ts * 1000,
@@ -526,33 +528,7 @@ async function recordTick() {
 
 // Build candles from SQLite ticks (uses after_hours_price when available)
 function buildCandlesFromTicks(ticks: TickData[], intervalSec: number) {
-  if (!ticks.length) return [];
-  const candles = [];
-  const effectivePrice = t => t.after_hours_price || (t as any).price;
-  let bucket = Math.floor(ticks[0].ts / intervalSec) * intervalSec;
-  let o = effectivePrice(ticks[0]), h = o, l = o, c = o, tickCount = 1;
-
-  for (let i = 1; i < ticks.length; i++) {
-    const t = ticks[i];
-    const b = Math.floor((t as any).ts / intervalSec) * intervalSec;
-    const p = effectivePrice(t);
-    if (b !== bucket) {
-      // Finalize candle with minimum visible body
-      if (h === l) { h = o + 1; l = o - 1; } // single-tick candle: give it a tiny body
-      candles.push({ time: bucket, open: o, high: h, low: l, close: c, volume: tickCount });
-      bucket = b;
-      o = p; h = p; l = p; c = p; tickCount = 1;
-    } else {
-      c = p;
-      if (p > h) h = p;
-      if (p < l) l = p;
-      tickCount++;
-    }
-  }
-  // Last candle
-  if (h === l) { h = o + 1; l = o - 1; }
-  candles.push({ time: bucket, open: o, high: h, low: l, close: c, volume: tickCount });
-  return candles;
+  return buildSpotCandles(ticks, intervalSec);
 }
 
 async function naverChart(interval, range) {
