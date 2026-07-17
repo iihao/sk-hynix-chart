@@ -100,7 +100,6 @@
         <option value="KRW">₩ KRW</option>
         <option value="USD" selected>$ USD</option>
       </select>
-      <button class="tf-btn" onclick="toggleWideMode()" title="宽屏模式">⊞</button>
       <span class="refresh-label" id="refreshLabel">等待数据...</span>
     </div>
   </div>
@@ -243,7 +242,10 @@
   <div class="signal-panel open" id="signalPanel">
     <div class="signal-header">
       <span class="signal-title">Quant</span>
-      <button class="signal-toggle-btn" onclick="toggleSignalPanel()">✕</button>
+      <div style="display:flex;gap:4px;align-items:center;">
+        <button class="signal-toggle-btn" onclick="toggleWideMode()" title="宽屏">⊞</button>
+        <button class="signal-toggle-btn" onclick="toggleSignalPanel()">✕</button>
+      </div>
     </div>
     <div class="signal-body" id="signalBody">
       <!-- Direction Dashboard -->

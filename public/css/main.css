@@ -32,7 +32,7 @@ body {
 }
 body.signal-panel-open .header,
 body.signal-panel-open .toolbar,
-body.signal-panel-open .chart-wrapper { margin-right: 360px; }
+body.signal-panel-open .chart-wrapper { margin-right: 260px; }
 
 /* ── Header ── */
 .header {
