@@ -49,6 +49,7 @@
 .signal-body {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px 10px;
 }
 .signal-body::-webkit-scrollbar { width: 3px; }
@@ -330,12 +331,13 @@
 /* ── Health Row ── */
 .health-row {
   display: grid;
-  grid-template-columns: 70px minmax(76px, 1fr) 42px 82px;
-  gap: 8px;
+  grid-template-columns: 60px 1fr auto auto;
+  gap: 6px;
   padding: 6px 8px;
   font: 10px 'JetBrains Mono', monospace;
   border-bottom: 1px solid rgba(255,255,255,0.03);
   transition: background 0.15s;
+  min-width: 0;
 }
 .health-row:hover {
   background: rgba(255,255,255,0.02);

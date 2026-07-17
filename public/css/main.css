@@ -32,7 +32,7 @@ body {
 }
 body.signal-panel-open .header,
 body.signal-panel-open .toolbar,
-body.signal-panel-open .chart-wrapper { margin-right: 260px; }
+body.signal-panel-open .chart-wrapper { margin-right: 280px; }
 
 /* ── Header ── */
 .header {
@@ -226,7 +226,7 @@ body.signal-panel-open .chart-wrapper { margin-right: 260px; }
 @media (min-width: 1600px) {
   body.signal-panel-open .header,
   body.signal-panel-open .toolbar,
-  body.signal-panel-open .chart-wrapper { margin-right: 260px; }
+  body.signal-panel-open .chart-wrapper { margin-right: 280px; }
 }
 
 /* ── Error Toast ── */
