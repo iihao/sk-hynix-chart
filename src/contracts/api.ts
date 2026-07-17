@@ -31,7 +31,7 @@ export interface IndicatorsResponse {
     bollUpper: number;
     bollLower: number;
     macdState: 'bullish' | 'bearish' | 'neutral';
-  };
+  } | null;
   signals: Signal[];
   support: SupportResistance[];
   resistance: SupportResistance[];
@@ -115,32 +115,51 @@ export interface RiskOverlay {
 // ══════════════════════════════════════════════
 
 export interface BacktestResponse {
+  params?: {
+    tf: string;
+    entryThreshold: number;
+    holdBars: number;
+    stopLossPct: number;
+    takeProfitPct: number;
+    leverage: number;
+    optimize?: boolean;
+  };
   trades: BacktestTrade[];
-  metrics: BacktestMetrics;
-  equityCurve: number[];
-  weights: Record<string, number>;
+  metrics: BacktestMetrics | null;
+  equityCurve: Array<{ time: number; equity: number }>;
+  factorHistory: unknown[];
+  activeWeights?: Record<string, number>;
+  activeParams?: Record<string, number>;
+  optimizedWeights?: Record<string, number>;
+  error?: string;
 }
 
 export interface BacktestTrade {
   entryTime: number;
   exitTime: number;
   direction: 'long' | 'short';
-  entry: number;
-  exit: number;
+  entryPrice: number;
+  exitPrice: number;
   pnl: number;
   pnlPct: number;
-  exitReason: 'signal' | 'stopLoss' | 'takeProfit' | 'timeout';
+  exitReason: string;
+  bars: number;
+  positionSizePct: number;
+  sl: number;
+  tp: number;
 }
 
 export interface BacktestMetrics {
-  totalTrades: number;
+  totalReturn: number;
   winRate: number;
+  profitFactor: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+  totalTrades: number;
+  avgHoldBars: number;
   avgWin: number;
   avgLoss: number;
-  totalReturn: number;
-  maxDrawdown: number;
-  sharpe: number;
-  profitFactor: number;
+  expectancy: number;
 }
 
 // ══════════════════════════════════════════════

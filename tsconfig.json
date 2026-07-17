@@ -26,6 +26,7 @@
   "include": [
     "server.ts",
     "lib/**/*.ts",
+    "src/**/*.ts",
     "types/**/*.ts"
   ],
   "exclude": [
