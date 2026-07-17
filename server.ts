@@ -150,7 +150,6 @@ async function fetchExchangeRate() {
 fetchExchangeRate();
 setInterval(fetchExchangeRate, 3600000);
 
-let clients = [];
 app.use(express.static(path.join(PROJECT_ROOT, 'public')));
 
 // ══════════════════════════════════════════
@@ -841,43 +840,62 @@ app.get('/api/ticks', (req, res) => {
 });
 
 // ── SSE ──
-let currentSource = 'naver';
+interface SSEClient {
+  res: Response;
+  source: string;
+}
+let clients: SSEClient[] = [];
+
 app.get('/api/stream', (req, res) => {
+  const source = (req.query.source as string) || 'naver';
   res.writeHead(200, {
     'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache',
     'Connection': 'keep-alive', 'Access-Control-Allow-Origin': '*'
   });
   res.write(':\n\n');
-  clients.push(res);
-  req.on('close', () => { clients = clients.filter(c => c !== res); });
+  const client: SSEClient = { res, source };
+  clients.push(client);
+  req.on('close', () => { clients = clients.filter(c => c.res !== res); });
 });
 
 async function broadcast() {
   if (clients.length === 0) return;
-  try {
-    const data = await getAllTimeframes(currentSource);
-    const payload = `data: ${JSON.stringify(data)}\n\n`;
-    clients.forEach(c => c.write(payload));
-    console.log(`[${new Date().toLocaleTimeString()}] ${currentSource} → ${clients.length} clients`);
-  } catch (err) {
-    console.error('Broadcast error:', err.message);
-    if (currentSource !== 'naver') {
-      try {
-        currentSource = 'naver';
-        const data = await getAllTimeframes('naver');
-        (data as any).fallbackFrom = 'yahoo';
-        const payload = `data: ${JSON.stringify(data)}\n\n`;
-        clients.forEach(c => c.write(payload));
-      } catch (e2) { /* ignore */ }
+  
+  // Group clients by source
+  const clientsBySource = new Map<string, SSEClient[]>();
+  for (const client of clients) {
+    const list = clientsBySource.get(client.source) || [];
+    list.push(client);
+    clientsBySource.set(client.source, list);
+  }
+  
+  // Broadcast to each group
+  for (const [source, group] of clientsBySource) {
+    try {
+      const data = await getAllTimeframes(source);
+      const payload = `data: ${JSON.stringify(data)}\n\n`;
+      group.forEach(c => c.res.write(payload));
+      console.log(`[${new Date().toLocaleTimeString()}] ${source} → ${group.length} clients`);
+    } catch (err) {
+      console.error(`Broadcast error (${source}):`, err.message);
+      // Fallback to naver for this group
+      if (source !== 'naver') {
+        try {
+          const data = await getAllTimeframes('naver');
+          (data as any).fallbackFrom = source;
+          const payload = `data: ${JSON.stringify(data)}\n\n`;
+          group.forEach(c => c.res.write(payload));
+        } catch (e2) { /* ignore */ }
+      }
     }
   }
 }
 
+// Keep /api/source for backward compatibility but it's now per-session
 app.post('/api/source', express.json(), (req, res) => {
-  if (req.body.source && SOURCES[req.body.source]) {
-    currentSource = req.body.source;
-    res.json({ source: currentSource });
-    broadcast();
+  const source = req.body.source;
+  if (source && SOURCES[source]) {
+    res.json({ source, note: 'Use /api/stream?source= for per-client binding' });
   } else {
     res.status(400).json({ error: 'invalid source' });
   }

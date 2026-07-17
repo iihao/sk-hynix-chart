@@ -172,16 +172,10 @@ function switchCurrency(cur) {
 /* ── Source Switch ── */
 async function switchSource(src) {
   state.currentSource = src;
-  try {
-    await fetch('/api/source', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source: src }),
-    });
-    fetchData();
-  } catch (e) {
-    console.error(e);
-  }
+  // Reconnect SSE with new source
+  connectSSE();
+  // Also fetch data immediately
+  fetchData();
 }
 
 /* ── Fetch Data ── */
@@ -212,9 +206,20 @@ async function fetchData() {
 }
 
 /* ── SSE ── */
+let currentEventSource = null;
+
 function connectSSE() {
-  const es = new EventSource('/api/stream');
-  es.onmessage = (e) => {
+  // Close existing connection
+  if (currentEventSource) {
+    currentEventSource.close();
+    currentEventSource = null;
+  }
+  
+  const source = state.currentSource || 'naver';
+  const url = `/api/stream?source=${encodeURIComponent(source)}`;
+  currentEventSource = new EventSource(url);
+  
+  currentEventSource.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data);
       state.krwUsdRate = data.krwUsd || KRW_USD_DEFAULT;
@@ -229,8 +234,10 @@ function connectSSE() {
       console.error(err);
     }
   };
-  es.onerror = () => {
-    es.close();
+  
+  currentEventSource.onerror = () => {
+    currentEventSource.close();
+    currentEventSource = null;
     setTimeout(connectSSE, 5000);
   };
 }
