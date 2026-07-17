@@ -33,6 +33,7 @@
     "node_modules",
     "dist",
     "test",
-    "public"
+    "public",
+    "src/**/*.test.ts"
   ]
 }
