@@ -28,6 +28,9 @@ scrolling. The signal panel may scroll internally.
 - Keep the current native HTML, CSS, and JavaScript module stack.
 - Preserve existing API endpoints and successful response shapes.
 - Keep the existing dark, work-focused trading-terminal aesthetic.
+- Use Binance desktop futures as a reference for information density, dark
+  surfaces, yellow focus states, compact controls, and chart-first composition;
+  retain SK hynix branding and cross-market semantics rather than cloning it.
 - Do not add marketing content, decorative illustration, or card-heavy layout.
 - Do not implement frontend-only trading logic that disagrees with backend
   factors, risk, or backtest calculations.
@@ -129,6 +132,10 @@ high, low, Binance price, funding, RSI, MACD, and volume ratio.
 At 1280 pixels, spacing and secondary labels tighten before any primary value is
 hidden. Low-priority refresh text and ticker subtitle may collapse. Typography
 uses fixed desktop sizes and must not scale with viewport width.
+
+The visual hierarchy follows a Binance-like market header: the primary price
+and move dominate, market metadata stays compact, separators are subtle, and
+yellow is reserved for focus, selected modes, and Binance-specific values.
 
 ### Toolbar and Chart
 
