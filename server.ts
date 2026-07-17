@@ -546,6 +546,19 @@ async function recordTick() {
     let ahSession = freshAfterHours?.session || null;
     let label = basic.marketOpen ? 'regular' : (ahPrice ? 'after-hours' : 'closed');
     
+    // When market is closed and after-hours is also closed, use Binance price as proxy
+    if (!basic.marketOpen && (!ahPrice || freshAfterHours?.status === 'CLOSE')) {
+      const bnLatest = selectBinanceLatest.get() as any;
+      if (bnLatest?.price && krwUsdRate > 0) {
+        const proxyPrice = Math.round(bnLatest.price * krwUsdRate);
+        if (proxyPrice > 0) {
+          ahPrice = proxyPrice;
+          ahSession = 'BINANCE_PROXY';
+          label = 'proxy';
+        }
+      }
+    }
+    
     insertTick.run(ts, price, basic.prevClose, basic.marketOpen ? 1 : 0, ahPrice, ahSession);
     markSourceHealthy('naver', {
       updatedAt: ts * 1000,
