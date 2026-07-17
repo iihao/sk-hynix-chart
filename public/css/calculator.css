@@ -1,0 +1,163 @@
+/* ── Floating Calculator Toggle ── */
+.calc-toggle {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 50;
+  background: var(--yellow);
+  color: var(--bg);
+  border: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+  box-shadow: 0 2px 12px rgba(240,185,11,0.3);
+}
+.calc-toggle:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 20px rgba(240,185,11,0.5);
+}
+
+/* ── Floating Calculator Panel ── */
+.calc-panel {
+  position: fixed;
+  bottom: 70px;
+  left: 16px;
+  z-index: 50;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  width: 300px;
+  display: none;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.calc-panel.show {
+  display: block;
+  animation: slideUp 0.3s ease;
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.calc-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-bright);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.calc-panel-title span {
+  color: var(--yellow);
+  font-size: 10px;
+}
+
+/* ── Floating Calculator Form ── */
+.fp-calc-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.fp-calc-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.fp-calc-label {
+  font-size: 9px;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.fp-calc-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 8px;
+  color: var(--text-bright);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  width: 100%;
+}
+.fp-calc-input:focus { outline: none; border-color: var(--yellow); }
+.fp-calc-input[readonly] {
+  background: rgba(240,185,11,0.05);
+  border-color: rgba(240,185,11,0.3);
+  color: var(--yellow);
+}
+.fp-calc-select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 8px;
+  color: var(--text-bright);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  cursor: pointer;
+  width: 100%;
+}
+.fp-calc-select:focus { outline: none; border-color: var(--yellow); }
+
+/* ── Floating Calculator Buttons ── */
+.fp-calc-btns { display: flex; gap: 6px; margin-top: 12px; }
+.fp-calc-btn {
+  flex: 1;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Inter', sans-serif;
+}
+.fp-calc-btn.long { background: rgba(14,203,129,0.15); color: var(--green); }
+.fp-calc-btn.long:hover { background: rgba(14,203,129,0.25); }
+.fp-calc-btn.short { background: rgba(246,70,93,0.15); color: var(--red); }
+.fp-calc-btn.short:hover { background: rgba(246,70,93,0.25); }
+.fp-calc-btn.active { outline: 2px solid; outline-offset: 2px; }
+.fp-calc-btn.primary { background: var(--yellow); color: var(--bg); }
+.fp-calc-btn.primary:hover { opacity: 0.9; }
+
+/* ── Floating Calculator Results ── */
+.fp-calc-result {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.fp-result-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.fp-result-label { color: var(--text); }
+.fp-result-val { color: var(--text-bright); font-weight: 600; }
+.fp-result-val.profit { color: var(--green); }
+.fp-result-val.loss { color: var(--red); }
+.fp-result-val.warn { color: var(--yellow); }
+.fp-result-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background: var(--bg);
+  border-radius: 6px;
+  margin-top: 6px;
+}
+.fp-result-total-label { font-size: 10px; color: var(--text); }
+.fp-result-total-val {
+  font-size: 14px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}

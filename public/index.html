@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SK Hynix 000660.KS</title>
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/chart.css">
+  <link rel="stylesheet" href="/css/signal-panel.css">
+  <link rel="stylesheet" href="/css/calculator.css">
+  <link rel="stylesheet" href="/css/stealth.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <div class="ticker-group">
+        <span class="ticker" id="tickerName">SK HYNIX</span>
+        <span class="ticker-sub" id="tickerSub">000660.KS</span>
+      </div>
+      <div class="price-group">
+        <span class="price" id="hdrPrice">--</span>
+        <span class="change-badge" id="hdrChange">--</span>
+      </div>
+      <div class="stat-row">
+        <div class="stat">
+          <span class="stat-label">收盘</span>
+          <span class="stat-val" id="statClose" style="color:#00bcd4">--</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label" id="statLabel1">前收</span>
+          <span class="stat-val" id="statPrev">--</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label" id="statLabel2">最高</span>
+          <span class="stat-val" id="statHigh">--</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label" id="statLabel3">最低</span>
+          <span class="stat-val" id="statLow">--</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label" style="color:var(--yellow)">BN</span>
+          <span class="stat-val" id="statBnPrice" style="color:var(--yellow)">--</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label" style="color:var(--yellow)">FR</span>
+          <span class="stat-val" id="statBnFR" style="color:var(--yellow)">--</span>
+        </div>
+      </div>
+      <div class="ind-stats stat-row">
+        <div class="ind-stat">
+          <span class="ind-stat-label">RSI</span>
+          <span class="ind-stat-val" id="indRsi">--</span>
+        </div>
+        <div class="ind-stat">
+          <span class="ind-stat-label">MACD</span>
+          <span class="ind-stat-val" id="indMacd">--</span>
+        </div>
+        <div class="ind-stat">
+          <span class="ind-stat-label">量比</span>
+          <span class="ind-stat-val" id="indVol">--</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="market-status">
+        <span class="status-dot closed" id="statusDot"></span>
+        <span id="statusLabel">检测中</span>
+      </div>
+      <span class="latency good" id="latencyBadge">--</span>
+      <span class="next-open-text" id="nextOpenText"></span>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button class="tf-btn" data-tf="m1" onclick="switchTF('m1',this)">
+      <span class="tf-text">1分</span>
+    </button>
+    <button class="tf-btn active" data-tf="m5" onclick="switchTF('m5',this)">
+      <span class="tf-text">5分</span>
+    </button>
+    <button class="tf-btn" data-tf="m15" onclick="switchTF('m15',this)">
+      <span class="tf-text">15分</span>
+    </button>
+    <button class="tf-btn" data-tf="h1" onclick="switchTF('h1',this)">
+      <span class="tf-text">1时</span>
+    </button>
+    <div class="toolbar-sep"></div>
+    <select class="currency-sel" id="srcSel" onchange="switchSource(this.value)" title="数据源">
+      <option value="yahoo">Yahoo</option>
+      <option value="naver" selected>Naver</option>
+    </select>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-right">
+      <select class="currency-sel" id="curSel" onchange="switchCurrency(this.value)">
+        <option value="KRW">₩ KRW</option>
+        <option value="USD" selected>$ USD</option>
+      </select>
+      <span class="refresh-label" id="refreshLabel">等待数据...</span>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="chart-wrapper">
+    <div class="watermark" id="watermark">000660</div>
+    <div class="chart-container active" id="cc-m5">
+      <div class="ohlc-bar" id="ohlc-m5"></div>
+      <div class="loading-mask" id="load-m5"><div class="spinner"></div>加载中</div>
+      <div id="chart-m5" style="width:100%;height:100%"></div>
+    </div>
+    <div class="chart-container" id="cc-m1">
+      <div class="ohlc-bar" id="ohlc-m1"></div>
+      <div class="loading-mask" id="load-m1"><div class="spinner"></div>加载中</div>
+      <div id="chart-m1" style="width:100%;height:100%"></div>
+    </div>
+    <div class="chart-container" id="cc-m15">
+      <div class="ohlc-bar" id="ohlc-m15"></div>
+      <div class="loading-mask" id="load-m15"><div class="spinner"></div>加载中</div>
+      <div id="chart-m15" style="width:100%;height:100%"></div>
+    </div>
+    <div class="chart-container" id="cc-h1">
+      <div class="ohlc-bar" id="ohlc-h1"></div>
+      <div class="loading-mask" id="load-h1"><div class="spinner"></div>加载中</div>
+      <div id="chart-h1" style="width:100%;height:100%"></div>
+    </div>
+  </div>
+
+  <!-- Floating Calculator -->
+  <button class="calc-toggle" id="calcToggle" onclick="toggleCalculator()">₿</button>
+  <div class="calc-panel" id="calcPanel">
+    <div class="calc-panel-title">
+      合约计算器
+      <span>Binance Futures</span>
+    </div>
+    <div class="fp-calc-row">
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">开仓价格</span>
+        <input type="number" class="fp-calc-input" id="fpCalcEntry" placeholder="0.00" step="0.01">
+      </div>
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">平仓价格</span>
+        <input type="number" class="fp-calc-input" id="fpCalcExit" placeholder="0.00" step="0.01">
+      </div>
+    </div>
+    <div class="fp-calc-row">
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">杠杆</span>
+        <select class="fp-calc-select" id="fpCalcLeverage">
+          <option value="2">2x</option>
+          <option value="3">3x</option>
+          <option value="5">5x</option>
+          <option value="10" selected>10x</option>
+          <option value="20">20x</option>
+          <option value="50">50x</option>
+          <option value="100">100x</option>
+          <option value="125">125x</option>
+        </select>
+      </div>
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">仓位 (USDT)</span>
+        <input type="number" class="fp-calc-input" id="fpCalcSize" placeholder="1000" step="100">
+      </div>
+    </div>
+    <div class="fp-calc-row">
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">手续费</span>
+        <select class="fp-calc-select" id="fpCalcFeeType">
+          <option value="taker">Taker 0.05%</option>
+          <option value="maker">Maker 0.02%</option>
+        </select>
+      </div>
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">资金费率 <span style="color:var(--yellow)">BN</span></span>
+        <input type="text" class="fp-calc-input" id="fpCalcFunding" readonly placeholder="加载中...">
+      </div>
+    </div>
+    <div class="fp-calc-row">
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">资金费次数</span>
+        <input type="number" class="fp-calc-input" id="fpCalcFundingCount" placeholder="0" value="0">
+      </div>
+      <div class="fp-calc-field">
+        <span class="fp-calc-label">方向</span>
+        <div style="display:flex;gap:4px;">
+          <button class="fp-calc-btn long active" id="fpBtnLong" onclick="fpSetDirection('long')">做多</button>
+          <button class="fp-calc-btn short" id="fpBtnShort" onclick="fpSetDirection('short')">做空</button>
+        </div>
+      </div>
+    </div>
+    <div class="fp-calc-btns">
+      <button class="fp-calc-btn primary" onclick="fpCalculatePnl()">计算收益</button>
+      <button class="fp-calc-btn" style="background:var(--border);color:var(--text);" onclick="fpUseCurrentPrice()">当前价</button>
+    </div>
+    <div class="fp-calc-result" id="fpCalcResult" style="display:none;">
+      <div class="fp-result-row">
+        <span class="fp-result-label">仓位价值</span>
+        <span class="fp-result-val" id="fpResMargin">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">数量</span>
+        <span class="fp-result-val" id="fpResQty">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">开仓手续费</span>
+        <span class="fp-result-val" id="fpResOpenFee">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">平仓手续费</span>
+        <span class="fp-result-val" id="fpResCloseFee">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">资金费用</span>
+        <span class="fp-result-val" id="fpResFunding">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">总手续费</span>
+        <span class="fp-result-val warn" id="fpResTotalFee">--</span>
+      </div>
+      <div class="fp-result-row">
+        <span class="fp-result-label">毛盈亏</span>
+        <span class="fp-result-val" id="fpResPnl">--</span>
+      </div>
+      <div class="fp-result-total">
+        <span class="fp-result-total-label">净盈亏 (ROI)</span>
+        <span class="fp-result-total-val" id="fpResNetPnl">--</span>
+      </div>
+      <div class="fp-result-row" style="margin-top:6px;">
+        <span class="fp-result-label">强平价格</span>
+        <span class="fp-result-val warn" id="fpResLiq">--</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Signal Expand Strip -->
+  <div class="signal-expand-strip" id="signalExpandStrip" onclick="toggleSignalPanel()">◀</div>
+
+  <!-- Signal Panel -->
+  <div class="signal-panel" id="signalPanel">
+    <div class="signal-header">
+      <span class="signal-title">Quant</span>
+      <button class="signal-toggle-btn" onclick="toggleSignalPanel()">✕</button>
+    </div>
+    <div class="signal-body" id="signalBody">
+      <!-- Direction Dashboard -->
+      <div class="collapsible open" id="dirDashCollapsible">
+        <div class="collapsible-head" onclick="toggleCollapsible('dirDashCollapsible')">
+          <span class="collapsible-title">方向趋势</span>
+          <span class="collapsible-arrow">▶</span>
+        </div>
+        <div class="collapsible-body">
+          <div class="dir-dash" id="dirDash">
+            <div class="dir-help" id="dirHelp">?</div>
+            <div class="gauge-wrap">
+              <svg class="gauge-svg" width="120" height="72" viewBox="0 0 120 72">
+                <path d="M10,65 A50,50 0 0,1 30,25" stroke="var(--red)" stroke-width="7" fill="none" opacity="0.8"/>
+                <path d="M30,25 A50,50 0 0,1 90,25" stroke="var(--yellow)" stroke-width="7" fill="none" opacity="0.8"/>
+                <path d="M90,25 A50,50 0 0,1 110,65" stroke="var(--green)" stroke-width="7" fill="none" opacity="0.8"/>
+                <path id="gaugeArc" d="" stroke-width="8" fill="none" stroke-linecap="round" opacity="0.5"/>
+                <g id="gaugeNeedle" transform="rotate(0, 60, 65)">
+                  <line x1="60" y1="65" x2="60" y2="24" stroke="var(--text-bright)" stroke-width="2" stroke-linecap="round"/>
+                  <circle cx="60" cy="65" r="4" fill="var(--text-bright)"/>
+                </g>
+                <text x="8" y="70" font-size="7" fill="var(--text)" opacity="0.5">做空</text>
+                <text x="52" y="8" font-size="7" fill="var(--text)" opacity="0.5">观望</text>
+                <text x="98" y="70" font-size="7" fill="var(--text)" opacity="0.5">做多</text>
+              </svg>
+            </div>
+            <div class="dir-text" id="dirText">分析中</div>
+            <div class="dir-vals">
+              <div class="dir-val-item">
+                <span class="dir-val-label">评分</span>
+                <span class="dir-score" id="dirScore">--</span>
+              </div>
+              <div class="dir-val-sep"></div>
+              <div class="dir-val-item">
+                <span class="dir-val-label">置信度</span>
+                <span class="dir-score" id="dirConf">--%</span>
+              </div>
+            </div>
+            <div class="dir-reason" id="dirReason">加载中...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Market Context -->
+      <div class="collapsible" id="contextCollapsible">
+        <div class="collapsible-head" onclick="toggleCollapsible('contextCollapsible')">
+          <span class="collapsible-title">市场环境</span>
+          <span class="collapsible-arrow">▶</span>
+        </div>
+        <div class="collapsible-body">
+          <div id="marketContextArea"></div>
+        </div>
+      </div>
+
+      <!-- Strategy -->
+      <div class="collapsible open" id="stratSection" style="display:none;">
+        <div class="collapsible-head" onclick="toggleCollapsible('stratSection')">
+          <span class="collapsible-title">操作建议</span>
+          <span class="collapsible-arrow">▶</span>
+        </div>
+        <div class="collapsible-body">
+          <div id="stratCard"></div>
+        </div>
+      </div>
+
+      <!-- Risk -->
+      <div id="riskArea"></div>
+
+      <!-- Factors -->
+      <div class="collapsible open" id="factorsCollapsible">
+        <div class="collapsible-head" onclick="toggleCollapsible('factorsCollapsible')">
+          <span class="collapsible-title">多空因素</span>
+          <span class="collapsible-arrow">▶</span>
+        </div>
+        <div class="collapsible-body">
+          <div id="factorTags"></div>
+          <div id="factorCoverage"></div>
+          <div id="basisArea"></div>
+        </div>
+      </div>
+
+      <!-- Signals -->
+      <div class="collapsible open" id="signalsCollapsible">
+        <div class="collapsible-head" onclick="toggleCollapsible('signalsCollapsible')">
+          <span class="collapsible-title">信号</span>
+          <span class="collapsible-arrow">▶</span>
+        </div>
+        <div class="collapsible-body" id="signalsContainer"></div>
+      </div>
+
+      <!-- Calculator in Signal Panel -->
+      <div class="collapsible open" id="calcCollapsible">
+        <div class="collapsible-head" onclick="toggleCollapsible('calcCollapsible')">
+          <span class="collapsible-title">合约计算器</span>
+          <span class="collapsible-arrow">▶</span>
+        </div>
+        <div class="collapsible-body">
+          <div class="calc-box">
+            <div class="calc-row">
+              <div class="calc-field">
+                <span class="calc-label">开仓价格</span>
+                <input type="number" class="calc-input" id="calcEntry" placeholder="0.00" step="0.01">
+              </div>
+              <div class="calc-field">
+                <span class="calc-label">平仓价格</span>
+                <input type="number" class="calc-input" id="calcExit" placeholder="0.00" step="0.01">
+              </div>
+            </div>
+            <div class="calc-row">
+              <div class="calc-field">
+                <span class="calc-label">杠杆</span>
+                <select class="calc-select" id="calcLeverage">
+                  <option value="2">2x</option>
+                  <option value="3">3x</option>
+                  <option value="5">5x</option>
+                  <option value="10" selected>10x</option>
+                  <option value="20">20x</option>
+                  <option value="50">50x</option>
+                  <option value="100">100x</option>
+                  <option value="125">125x</option>
+                </select>
+              </div>
+              <div class="calc-field">
+                <span class="calc-label">仓位 (USDT)</span>
+                <input type="number" class="calc-input" id="calcSize" placeholder="1000" step="100">
+              </div>
+            </div>
+            <div class="calc-row">
+              <div class="calc-field">
+                <span class="calc-label">手续费</span>
+                <select class="calc-select" id="calcFeeType">
+                  <option value="taker">Taker 0.05%</option>
+                  <option value="maker">Maker 0.02%</option>
+                </select>
+              </div>
+              <div class="calc-field">
+                <span class="calc-label">资金费率 <span style="color:var(--yellow)">BN</span></span>
+                <input type="text" class="calc-input" id="calcFunding" readonly placeholder="加载中...">
+              </div>
+            </div>
+            <div class="calc-row">
+              <div class="calc-field">
+                <span class="calc-label">资金费次数</span>
+                <input type="number" class="calc-input" id="calcFundingCount" placeholder="0" value="0">
+              </div>
+              <div class="calc-field">
+                <span class="calc-label">方向</span>
+                <div style="display:flex;gap:4px;">
+                  <button class="calc-btn long active" id="btnLong" onclick="setDirection('long')">做多</button>
+                  <button class="calc-btn short" id="btnShort" onclick="setDirection('short')">做空</button>
+                </div>
+              </div>
+            </div>
+            <div class="calc-btns">
+              <button class="calc-btn primary" onclick="calculatePnl()">计算收益</button>
+              <button class="calc-btn" style="background:var(--border);color:var(--text);" onclick="useCurrentPrice()">当前价</button>
+            </div>
+            <div class="calc-result" id="calcResult" style="display:none;">
+              <div class="result-row">
+                <span class="result-label">仓位价值</span>
+                <span class="result-val" id="resMargin">--</span>
+              </div>
+              <div class="result-row">
+                <span class="result-label">数量</span>
+                <span class="result-val" id="resQty">--</span>
+              </div>
+              <div class="result-row">
+                <span class="result-label">开仓手续费</span>
+                <span class="result-val" id="resOpenFee">--</span>
+              </div>
+              <div class="result-row">
+                <span class="result-label">平仓手续费</span>
+                <span class="result-val" id="resCloseFee">--</span>
+              </div>
+              <div class="result-row">
+                <span class="result-label">资金费用</span>
+                <span class="result-val" id="resFunding">--</span>
+              </div>
+              <div class="result-row">
+                <span class="result-label">总手续费</span>
+                <span class="result-val warn" id="resTotalFee">--</span>
+              </div>
+              <div class="result-row">
+                <span class="result-label">毛盈亏</span>
+                <span class="result-val" id="resPnl">--</span>
+              </div>
+              <div class="result-total">
+                <span class="result-total-label">净盈亏 (ROI)</span>
+                <span class="result-total-val" id="resNetPnl">--</span>
+              </div>
+              <div class="result-row" style="margin-top:6px;">
+                <span class="result-label">强平价格</span>
+                <span class="result-val warn" id="resLiq">--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Backtest -->
+      <div class="collapsible" id="btCollapsible">
+        <div class="collapsible-head" onclick="toggleCollapsible('btCollapsible')">
+          <span class="collapsible-title">回测</span>
+          <span class="collapsible-arrow">▶</span>
+        </div>
+        <div class="collapsible-body">
+          <div class="bt-box" id="btBox">
+            <div class="bt-header">
+              <button class="bt-run-btn" onclick="runBacktest()">回测</button>
+              <button class="bt-run-btn" onclick="runBacktest(true)" style="background:rgba(14,203,129,0.12);border-color:rgba(14,203,129,0.3);color:var(--green)">优化</button>
+            </div>
+            <div class="bt-params">
+              <div class="bt-param">
+                <span class="bt-param-label">阈值</span>
+                <input class="bt-param-input" id="btThreshold" type="number" value="2.0" step="0.5" min="0.5" max="8">
+              </div>
+              <div class="bt-param">
+                <span class="bt-param-label">持仓</span>
+                <input class="bt-param-input" id="btHold" type="number" value="12" step="1" min="3" max="50">
+              </div>
+              <div class="bt-param">
+                <span class="bt-param-label">止损%</span>
+                <input class="bt-param-input" id="btSL" type="number" value="3.0" step="0.5" min="1" max="10">
+              </div>
+              <div class="bt-param">
+                <span class="bt-param-label">止盈%</span>
+                <input class="bt-param-input" id="btTP" type="number" value="5.0" step="0.5" min="1" max="15">
+              </div>
+            </div>
+            <div id="btMetricsArea"></div>
+            <div id="btWeightsArea"></div>
+            <div id="btEquityArea"></div>
+            <div id="btContextArea"></div>
+            <div id="btTradesArea"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Toast -->
+  <div class="error-toast" id="errorToast"></div>
+
+  <!-- Stealth Hint -->
+  <div class="stealth-hint" id="stealthHint">[ ` ] 切换模式</div>
+
+  <!-- JavaScript Module -->
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
