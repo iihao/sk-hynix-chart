@@ -23,6 +23,21 @@ export function fpUseCurrentPrice() {
   }
 }
 
+export function syncBinanceQuote(price, fundingRate) {
+  if (Number.isFinite(Number(price)) && Number(price) > 0) {
+    state.currentBinancePrice = Number(price);
+    const entryInput = $('fpCalcEntry');
+    if (entryInput && !entryInput.value) entryInput.value = state.currentBinancePrice.toFixed(2);
+  }
+  if (Number.isFinite(Number(fundingRate))) {
+    const fundingInput = $('fpCalcFunding');
+    if (fundingInput) {
+      fundingInput.value = (Number(fundingRate) * 100).toFixed(4) + '%';
+      fundingInput.dataset.rate = String(fundingRate);
+    }
+  }
+}
+
 /* ── Floating Calculator Calculate ── */
 export async function fpCalculatePnl() {
   const entryPrice = parseFloat($('fpCalcEntry').value);
@@ -95,18 +110,7 @@ export async function fetchBinancePrice() {
     const res = await fetch('/api/binance/price');
     if (res.ok) {
       const data = await res.json();
-      state.currentBinancePrice = data.price || 0;
-
-      // Fill floating calculator
-      const fpEntryInput = $('fpCalcEntry');
-      if (!fpEntryInput.value && state.currentBinancePrice) {
-        fpEntryInput.value = state.currentBinancePrice.toFixed(2);
-      }
-      const fpFundingInput = $('fpCalcFunding');
-      if (data.fundingRate) {
-        fpFundingInput.value = (data.fundingRate * 100).toFixed(4) + '%';
-        fpFundingInput.dataset.rate = data.fundingRate;
-      }
+      syncBinanceQuote(data.price, data.fundingRate);
     }
   } catch (e) {
     console.error('Failed to fetch Binance price:', e);

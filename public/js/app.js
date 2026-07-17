@@ -15,6 +15,7 @@ import {
   fpSetDirection,
   fpUseCurrentPrice,
   fpCalculatePnl,
+  syncBinanceQuote,
   fetchBinancePrice,
 } from './calculator.js';
 import { createDashboardController } from './dashboard-controller.mjs';
@@ -213,6 +214,8 @@ function applySnapshot(data) {
   state.krwUsdRate = data.krwUsd || KRW_USD_DEFAULT;
   state.rawData = data;
   state.lastServerTime = data.serverTime || 0;
+  const binanceMeta = data.binance?.m5?.meta || data.binance?.m1?.meta || {};
+  syncBinanceQuote(binanceMeta.price, binanceMeta.fundingRate);
   updateAll(data);
   updateLatency(data.serverTime);
 }
