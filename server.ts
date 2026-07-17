@@ -285,7 +285,7 @@ function getSourceHealthSnapshot() {
 
     let detail = meta.detail || '';
     if (key === 'sentiment' && sentimentStats) {
-      detail = `${Math.min(sentimentStats.hours || 0, 24)}/24h`;
+      detail = `${Math.min((sentimentStats as any).hours || 0, 24)}/24h`;
     }
 
     return {
@@ -389,14 +389,14 @@ async function recordTick() {
     const ts = Math.floor(Date.now() / 1000);
     const ahPrice = basic.afterHours?.price || null;
     const ahSession = basic.afterHours?.session || null;
-    insertTick.run(ts, basic.price, basic.prevClose, basic.marketOpen ? 1 : 0, ahPrice, ahSession);
+    insertTick.run(ts, (basic as any).price, basic.prevClose, basic.marketOpen ? 1 : 0, ahPrice, ahSession);
     markSourceHealthy('naver', {
       updatedAt: ts * 1000,
-      detail: `₩${(ahPrice || basic.price).toLocaleString()}`,
+      detail: `₩${(ahPrice || (basic as any).price).toLocaleString()}`,
     });
     const cnt = countTicks.get().cnt;
     const label = basic.marketOpen ? 'regular' : (ahPrice ? 'after-hours' : 'closed');
-    const displayPrice = ahPrice || basic.price;
+    const displayPrice = ahPrice || (basic as any).price;
     console.log(`[tick] ${new Date().toLocaleTimeString()} ${label} price=${displayPrice} (total: ${cnt})`);
     return basic;
   } catch (err) {
@@ -409,13 +409,13 @@ async function recordTick() {
 function buildCandlesFromTicks(ticks, intervalSec) {
   if (!ticks.length) return [];
   const candles = [];
-  const effectivePrice = t => t.after_hours_price || t.price;
+  const effectivePrice = t => t.after_hours_price || (t as any).price;
   let bucket = Math.floor(ticks[0].ts / intervalSec) * intervalSec;
   let o = effectivePrice(ticks[0]), h = o, l = o, c = o, tickCount = 1;
 
   for (let i = 1; i < ticks.length; i++) {
     const t = ticks[i];
-    const b = Math.floor(t.ts / intervalSec) * intervalSec;
+    const b = Math.floor((t as any).ts / intervalSec) * intervalSec;
     const p = effectivePrice(t);
     if (b !== bucket) {
       // Finalize candle with minimum visible body
@@ -460,7 +460,7 @@ async function naverChart(interval, range) {
   const candles = buildCandlesFromTicks(ticks, intervalSec);
 
   // Use after-hours price when market is closed but OTC is open
-  const displayPrice = (!basic.marketOpen && basic.afterHours) ? basic.afterHours.price : basic.price;
+  const displayPrice = (!basic.marketOpen && basic.afterHours) ? basic.afterHours.price : (basic as any).price;
 
   return {
     source: 'naver',
@@ -508,14 +508,14 @@ async function recordBinanceTick() {
   try {
     const meta = await binanceMeta();
     const ts = Math.floor(Date.now() / 1000);
-    insertBinanceTick.run(ts, meta.price, meta.markPrice, meta.indexPrice, meta.fundingRate, meta.high24h, meta.low24h, meta.volume24h);
+    insertBinanceTick.run(ts, (meta as any).price, meta.markPrice, meta.indexPrice, meta.fundingRate, meta.high24h, meta.low24h, meta.volume24h);
     latestBinanceFundingTimeMs = meta.nextFundingTime || 0;
     markSourceHealthy('binance', {
       updatedAt: ts * 1000,
-      detail: `$${Math.round(meta.price * 100) / 100}`,
+      detail: `$${Math.round((meta as any).price * 100) / 100}`,
     });
     const cnt = countBinanceTicks.get().cnt;
-    console.log(`[binance-tick] ${new Date().toLocaleTimeString()} price=$${meta.price} (total: ${cnt})`);
+    console.log(`[binance-tick] ${new Date().toLocaleTimeString()} price=$${(meta as any).price} (total: ${cnt})`);
     return meta;
   } catch (err) {
     console.error('[binance-tick] error:', err.message);
@@ -531,8 +531,8 @@ function buildBinanceCandlesFromTicks(ticks, intervalSec) {
 
   for (let i = 1; i < ticks.length; i++) {
     const t = ticks[i];
-    const b = Math.floor(t.ts / intervalSec) * intervalSec;
-    const p = t.price;
+    const b = Math.floor((t as any).ts / intervalSec) * intervalSec;
+    const p = (t as any).price;
     if (b !== bucket) {
       if (h === l) { h = o + 0.01; l = o - 0.01; }
       candles.push({ time: bucket, open: o, high: h, low: l, close: c, volume: 0 });
@@ -567,13 +567,13 @@ function getBinanceLocal(interval) {
     line,
     candles,
     meta: latest ? {
-      price: latest.price,
-      markPrice: latest.mark_price,
-      indexPrice: latest.index_price,
-      fundingRate: latest.funding_rate,
-      high24h: latest.high_24h,
-      low24h: latest.low_24h,
-      volume24h: latest.volume_24h,
+      price: (latest as any).price,
+      markPrice: (latest as any).mark_price,
+      indexPrice: (latest as any).index_price,
+      fundingRate: (latest as any).funding_rate,
+      high24h: (latest as any).high_24h,
+      low24h: (latest as any).low_24h,
+      volume24h: (latest as any).volume_24h,
     } : null,
     local: true,
     tickCount: ticks.length,
@@ -678,7 +678,7 @@ async function fetchBinanceSentiment() {
 
     for (const row of merged) {
       insertSentiment.run(
-        row.ts,
+        (row as any).ts,
         row.ls_ratio,
         row.ls_long_pct,
         row.ls_short_pct,
@@ -687,7 +687,7 @@ async function fetchBinanceSentiment() {
         row.taker_sell_vol,
         row.open_interest,
         row.oi_value,
-        row.top_ls_ratio,
+        (row as any).top_ls_ratio,
         row.top_long_pct,
         row.top_short_pct,
       );
@@ -695,11 +695,11 @@ async function fetchBinanceSentiment() {
 
     const latest = merged[merged.length - 1];
     markSourceHealthy('sentiment', {
-      updatedAt: latest.ts * 1000,
+      updatedAt: (latest as any).ts * 1000,
       detail: `${merged.length}h`,
     });
     const cnt = countSentimentRows.get().cnt;
-    console.log(`[sentiment] rows=${merged.length} latest LS=${latest.ls_ratio} Taker=${latest.taker_ratio} OI=${latest.open_interest} Top=${latest.top_ls_ratio} (total: ${cnt})`);
+    console.log(`[sentiment] rows=${merged.length} latest LS=${latest.ls_ratio} Taker=${latest.taker_ratio} OI=${latest.open_interest} Top=${(latest as any).top_ls_ratio} (total: ${cnt})`);
   } catch (err) {
     console.error('[sentiment] fetch error:', err.message);
   }
@@ -749,7 +749,7 @@ async function getAllTimeframes(source = 'yahoo') {
       basic.afterHours = lastAfterHours;
     }
     const now = Math.floor(Date.now() / 1000);
-    const displayPrice = (!basic.marketOpen && basic.afterHours) ? basic.afterHours.price : basic.price;
+  const displayPrice = (!basic.marketOpen && basic.afterHours) ? (basic.afterHours as any).price : (basic as any).price;
     const makeResult = (rangeSec, intervalSec) => {
       const ticks = selectRange.all(now - rangeSec, now);
       const candles = buildCandlesFromTicks(ticks, intervalSec);
@@ -789,7 +789,7 @@ async function getAllTimeframes(source = 'yahoo') {
 
 // ── API: data ──
 app.get('/api/data', async (req, res) => {
-  const source = req.query.source || 'yahoo';
+  const source = (req.query as any).source || 'yahoo';
   try {
     const data = await getAllTimeframes(source);
     res.json(data);
@@ -799,7 +799,7 @@ app.get('/api/data', async (req, res) => {
       try {
         console.log('Trying naver fallback...');
         const data = await getAllTimeframes('naver');
-        data.fallbackFrom = source;
+        (data as any).fallbackFrom = source;
         res.json(data);
         return;
       } catch (e2) { console.error('[naver] Fallback also failed:', e2.message); }
@@ -854,7 +854,7 @@ async function broadcast() {
       try {
         currentSource = 'naver';
         const data = await getAllTimeframes('naver');
-        data.fallbackFrom = 'yahoo';
+        (data as any).fallbackFrom = 'yahoo';
         const payload = `data: ${JSON.stringify(data)}\n\n`;
         clients.forEach(c => c.write(payload));
       } catch (e2) { /* ignore */ }
@@ -1033,27 +1033,27 @@ function findSupportResistance(candles) {
   const clustered = [];
   const used = new Set();
   for (const l of levels) {
-    if (used.has(l.price)) continue;
-    const cluster = levels.filter(x => Math.abs(x.price - l.price) / l.price < 0.01);
-    const avgPrice = Math.round(cluster.reduce((s, x) => s + x.price, 0) / cluster.length);
+    if (used.has((l as any).price)) continue;
+    const cluster = levels.filter(x => Math.abs((x as any).price - (l as any).price) / (l as any).price < 0.01);
+    const avgPrice = Math.round(cluster.reduce((s, x) => s + (x as any).price, 0) / cluster.length);
     const count = cluster.length;
     clustered.push({ price: avgPrice, type: l.type, strength: count });
-    cluster.forEach(x => used.add(x.price));
+    cluster.forEach(x => used.add((x as any).price));
   }
 
   // Return top support and resistance levels
   const currentPrice = closes[closes.length - 1];
-  const support = clustered.filter(l => l.type === 'support' && l.price < currentPrice)
-    .sort((a, b) => b.price - a.price).slice(0, 3);
-  const resistance = clustered.filter(l => l.type === 'resistance' && l.price > currentPrice)
-    .sort((a, b) => a.price - b.price).slice(0, 3);
+  const support = clustered.filter(l => l.type === 'support' && (l as any).price < currentPrice)
+    .sort((a, b) => (b as any).price - (a as any).price).slice(0, 3);
+  const resistance = clustered.filter(l => l.type === 'resistance' && (l as any).price > currentPrice)
+    .sort((a, b) => (a as any).price - (b as any).price).slice(0, 3);
 
   return { support, resistance };
 }
 
 app.get('/api/indicators', (req, res) => {
   try {
-    const { rangeSec, intervalSec } = getTimeframeConfig(req.query.tf || 'm5');
+    const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
     const now = Math.floor(Date.now() / 1000);
 
     const ticks = selectRange.all(now - rangeSec, now);
@@ -1162,12 +1162,12 @@ function factorFundingRate(binanceTicks) {
   if (binanceTicks.length < 2) return { score: 0, weight: 0, detail: '数据不足' };
   const recent = binanceTicks.slice(-20);
   const latest = recent[recent.length - 1];
-  const rate = latest.funding_rate || 0;
+  const rate = (latest as any).funding_rate || 0;
   const ratePct = rate * 100;
   // Trend: compare recent avg vs earlier avg
   const half = Math.floor(recent.length / 2);
-  const recentAvg = recent.slice(half).reduce((s, t) => s + (t.funding_rate || 0), 0) / (recent.length - half);
-  const earlyAvg = recent.slice(0, half).reduce((s, t) => s + (t.funding_rate || 0), 0) / half;
+  const recentAvg = recent.slice(half).reduce((s, t) => s + ((t as any).funding_rate || 0), 0) / (recent.length - half);
+  const earlyAvg = recent.slice(0, half).reduce((s, t) => s + ((t as any).funding_rate || 0), 0) / half;
   const trend = (recentAvg - earlyAvg) * 100;
   // Positive funding = longs pay shorts = bullish sentiment
   // But very high = overheated
@@ -1248,9 +1248,9 @@ function factorExchangeRate() {
 
 function factorPremium(naverLatest, binanceLatest) {
   if (!naverLatest || !binanceLatest) return { score: 0, weight: 0, detail: '数据不足' };
-  const naverKRW = naverLatest.after_hours_price || naverLatest.price;
+  const naverKRW = naverLatest.after_hours_price || (naverLatest as any).price;
   const naverUSD = naverKRW / krwUsdRate;
-  const bnPrice = binanceLatest.price;
+  const bnPrice = (binanceLatest as any).price;
   const premium = (bnPrice - naverUSD) / naverUSD * 100;
   // Positive premium = market expects upside = bullish
   let score = clampScore(premium * 2);
@@ -1292,8 +1292,8 @@ function factorSupportResistance(candles, sr) {
 
   let nearestSupport = 0, nearestResistance = Infinity;
   for (const l of allLevels) {
-    if (l.type === 'support' && l.price < price && l.price > nearestSupport) nearestSupport = l.price;
-    if (l.type === 'resistance' && l.price > price && l.price < nearestResistance) nearestResistance = l.price;
+    if (l.type === 'support' && (l as any).price < price && (l as any).price > nearestSupport) nearestSupport = (l as any).price;
+    if (l.type === 'resistance' && (l as any).price > price && (l as any).price < nearestResistance) nearestResistance = (l as any).price;
   }
 
   const distToSupport = nearestSupport > 0 ? (price - nearestSupport) / price * 100 : 10;
@@ -1320,7 +1320,7 @@ function factorLongShortRatio(sentiment) {
   if (!sentiment) return { score: 0, weight: 0, detail: '数据不足' };
   const ratio = sentiment.ls_ratio || 1;
   const longPct = sentiment.ls_long_pct || 0.5;
-  const topRatio = sentiment.top_ls_ratio || 1;
+  const topRatio = (sentiment as any).top_ls_ratio || 1;
   const topLongPct = sentiment.top_long_pct || 0.5;
 
   // Long/Short ratio: >1.5 = lots of longs (potential squeeze risk), <0.7 = lots of shorts (potential squeeze up)
@@ -1402,7 +1402,7 @@ function factorLongShortTrend() {
   const unique = [];
   const seen = new Set();
   for (const r of rows) {
-    const key = Math.floor(r.ts / 3600); // group by hour
+    const key = Math.floor((r as any).ts / 3600); // group by hour
     if (!seen.has(key)) { seen.add(key); unique.push(r); }
   }
   if (unique.length < 2) return { score: 0, weight: 0, detail: '数据不足' };
@@ -1444,8 +1444,8 @@ function factorWhaleActivity() {
   const unique = [];
   const seen = new Set();
   for (const r of rows) {
-    const key = Math.floor(r.ts / 3600);
-    if (!seen.has(key) && r.top_ls_ratio > 0) { seen.add(key); unique.push(r); }
+    const key = Math.floor((r as any).ts / 3600);
+    if (!seen.has(key) && (r as any).top_ls_ratio > 0) { seen.add(key); unique.push(r); }
   }
   if (unique.length < 2) return { score: 0, weight: 0, detail: '数据不足' };
 
@@ -1454,7 +1454,7 @@ function factorWhaleActivity() {
   const trend = latest - earliest;
   const prevHour = unique.length >= 2 ? unique[unique.length - 2].top_ls_ratio : latest;
   const shortTrend = latest - prevHour;
-  const avg = unique.reduce((s, r) => s + r.top_ls_ratio, 0) / unique.length;
+  const avg = unique.reduce((s, r) => s + (r as any).top_ls_ratio, 0) / unique.length;
 
   let score = 0;
   // Whale activity: level + momentum
@@ -1494,16 +1494,16 @@ async function fetchNewsSentiment() {
       newsSentiment = {
         score: parsed.score,
         headlines: parsed.headlines.slice(0, 5),
-        positive: parsed.positive,
-        negative: parsed.negative,
+        positive: (parsed as any).positive,
+        negative: (parsed as any).negative,
         updatedAt: parsed.latestPublishedAt || 0,
         fetchedAt: Date.now(),
-        recentCount: parsed.recentCount || 0,
+        recentCount: (parsed as any).recentCount || 0,
         source: 'bing',
       };
       markSourceHealthy('news', {
         updatedAt: parsed.latestPublishedAt || Date.now(),
-        detail: `${newsSentiment.recentCount || newsSentiment.headlines.length}条(Bing)`,
+        detail: `${(newsSentiment as any).recentCount || newsSentiment.headlines.length}条(Bing)`,
       });
       return;
     }
@@ -1520,16 +1520,16 @@ async function fetchNewsSentiment() {
       newsSentiment = {
         score: parsed.score,
         headlines: parsed.headlines.slice(0, 5),
-        positive: parsed.positive,
-        negative: parsed.negative,
+        positive: (parsed as any).positive,
+        negative: (parsed as any).negative,
         updatedAt: parsed.latestPublishedAt || 0,
         fetchedAt: Date.now(),
-        recentCount: parsed.recentCount || 0,
+        recentCount: (parsed as any).recentCount || 0,
         source: 'yahoo',
       };
       markSourceHealthy('news', {
         updatedAt: parsed.latestPublishedAt || Date.now(),
-        detail: `${newsSentiment.recentCount || newsSentiment.headlines.length}条(Yahoo)`,
+        detail: `${(newsSentiment as any).recentCount || newsSentiment.headlines.length}条(Yahoo)`,
       });
     }
   } catch (e) {
@@ -1548,7 +1548,7 @@ function factorNewsSentiment() {
   return {
     category: 'news', label: '新闻情绪',
     score: Math.round(score * 10) / 10, weight,
-    detail: `近7天 正面${newsSentiment.positive}条 负面${newsSentiment.negative}条 | ${topHeadline.slice(0, 30)}...`
+    detail: `近7天 正面${(newsSentiment as any).positive}条 负面${(newsSentiment as any).negative}条 | ${topHeadline.slice(0, 30)}...`
   };
 }
 
@@ -1611,9 +1611,9 @@ function applyRiskToStrategy(strategy, risk, context = {}) {
   const next = {
     ...strategy,
     risk,
-    regime: context.regime,
-    marketContext: context.marketContext,
-    basis: context.basis,
+    regime: (context as any).regime,
+    marketContext: (context as any).marketContext,
+    basis: (context as any).basis,
     positionSize: `${risk.positionPct}%`,
     maxSingleLoss: `${risk.maxSingleLossPct}%`,
     maxDailyLoss: `${risk.maxDailyLossPct}%`,
@@ -1634,7 +1634,7 @@ function applyRiskToStrategy(strategy, risk, context = {}) {
     next.warnings = [...risk.warnings, ...next.warnings];
   }
 
-  if (next.direction !== '观望') next.leverage = risk.leverageCap;
+  if (next.direction !== '观望') (next as any).leverage = risk.leverageCap;
   return next;
 }
 
@@ -1648,11 +1648,11 @@ function generateStrategy(factors, composite, indicators, candles, sr, naverLate
   }
 
   // Use Binance contract price as the reference (not Naver stock price)
-  const price = binanceLatest && binanceLatest.price ? binanceLatest.price : candles[candles.length - 1].close;
-  const th = activeParams.entryThreshold * (context.regime?.entryThresholdMultiplier || 1);
-  strategy.regimeLabel = context.regime?.label || '未识别';
-  strategy.regimeReason = context.regime?.reason || '';
-  strategy.entryThresholdUsed = th;
+  const price = binanceLatest && (binanceLatest as any).price ? (binanceLatest as any).price : candles[candles.length - 1].close;
+  const th = (activeParams as any).entryThreshold * ((context as any).regime?.entryThresholdMultiplier || 1);
+  (strategy as any).regimeLabel = (context as any).regime?.label || '未识别';
+  (strategy as any).regimeReason = (context as any).regime?.reason || '';
+  (strategy as any).entryThresholdUsed = th;
 
   // ── Factor Evidence Chain ──
   for (const f of factors) {
@@ -1700,10 +1700,10 @@ function generateStrategy(factors, composite, indicators, candles, sr, naverLate
     strategy.entry = price;
     if (strategy.direction.includes('做多') && indicators && indicators.rsi > 65) {
       strategy.entry = Math.round(price * 0.99);
-      strategy.entryNote = '回踩入场';
+      (strategy as any).entryNote = '回踩入场';
     } else if (strategy.direction.includes('做空') && indicators && indicators.rsi < 35) {
       strategy.entry = Math.round(price * 1.01);
-      strategy.entryNote = '反弹入场';
+      (strategy as any).entryNote = '反弹入场';
     }
 
     // Calculate ATR for fallback (minimum 0.5% of price to ensure reasonable levels)
@@ -1754,11 +1754,11 @@ function generateStrategy(factors, composite, indicators, candles, sr, naverLate
     }
   }
 
-  if (context.marketContext?.event?.status === 'watch' || context.marketContext?.event?.status === 'cooldown') {
-    strategy.warnings.push(context.marketContext.event.message);
+  if ((context as any).marketContext?.event?.status === 'watch' || (context as any).marketContext?.event?.status === 'cooldown') {
+    strategy.warnings.push((context as any).marketContext.event.message);
   }
-  if (context.basis?.ready && Math.abs(context.basis.zScore) >= 2) {
-    strategy.warnings.push(`${context.basis.label}，避免把映射误差当趋势`);
+  if ((context as any).basis?.ready && Math.abs((context as any).basis.zScore) >= 2) {
+    strategy.warnings.push(`${(context as any).basis.label}，避免把映射误差当趋势`);
   }
 
   // ── Reasoning (top contributing factors) ──
@@ -1793,9 +1793,9 @@ function generateStrategy(factors, composite, indicators, candles, sr, naverLate
   }
 
   // ── Leverage suggestion ──
-  if (strategy.riskLevel === '低') strategy.leverage = '5-10x';
-  else if (strategy.riskLevel === '中') strategy.leverage = '3-5x';
-  else strategy.leverage = '1-3x';
+  if (strategy.riskLevel === '低') (strategy as any).leverage = '5-10x';
+  else if (strategy.riskLevel === '中') (strategy as any).leverage = '3-5x';
+  else (strategy as any).leverage = '1-3x';
 
   return strategy;
 }
@@ -1812,7 +1812,7 @@ app.post('/api/news/refresh', async (req, res) => {
 
 app.get('/api/factors', (req, res) => {
   try {
-    const { rangeSec, intervalSec } = getTimeframeConfig(req.query.tf || 'm5');
+    const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
     const now = Math.floor(Date.now() / 1000);
 
     const ticks = selectRange.all(now - rangeSec, now);
@@ -1966,10 +1966,10 @@ async function autoOptimize() {
     const splitIdx = Math.floor(candles.length * 0.7);
     const trainCandles = candles.slice(0, splitIdx);
     const testCandles = candles.slice(splitIdx);
-    const trainBinance = binanceWindow.filter(t => t.ts <= trainCandles[trainCandles.length - 1].time);
-    const testBinance = binanceWindow.filter(t => t.ts > trainCandles[trainCandles.length - 1].time);
-    const trainSentiment = sentimentData.filter(t => t.ts <= trainCandles[trainCandles.length - 1].time);
-    const testSentiment = sentimentData.filter(t => t.ts > trainCandles[trainCandles.length - 1].time);
+    const trainBinance = binanceWindow.filter(t => (t as any).ts <= trainCandles[trainCandles.length - 1].time);
+    const testBinance = binanceWindow.filter(t => (t as any).ts > trainCandles[trainCandles.length - 1].time);
+    const trainSentiment = sentimentData.filter(t => (t as any).ts <= trainCandles[trainCandles.length - 1].time);
+    const testSentiment = sentimentData.filter(t => (t as any).ts > trainCandles[trainCandles.length - 1].time);
 
     // Grid search on training set
     let bestScore = null;
@@ -2042,7 +2042,7 @@ async function autoOptimize() {
     activeParams = { ...activeParams, ...bestParams };
     lastOptimizeTime = Date.now();
 
-    console.log(`[optimize] done | score=${bestScore.toFixed(2)} | th=${bestParams.entryThreshold} hold=${bestParams.holdBars}`);
+    console.log(`[optimize] done | score=${bestScore.toFixed(2)} | th=${(bestParams as any).entryThreshold} hold=${(bestParams as any).holdBars}`);
     console.log(`[optimize] weights: ${Object.entries(bestWeights).map(([k,v]) => `${k}=${v}`).join(' ')}`);
     if (trainResult.metrics) {
       console.log(`[optimize] train: return=${trainResult.metrics.totalReturn}% win=${trainResult.metrics.winRate}% sharpe=${trainResult.metrics.sharpeRatio}`);
@@ -2058,7 +2058,7 @@ async function autoOptimize() {
 }
 
 function calcCandlesForWindow(ticks, from, to, intervalSec) {
-  const windowTicks = ticks.filter(t => t.ts >= from && t.ts < to);
+  const windowTicks = ticks.filter(t => (t as any).ts >= from && (t as any).ts < to);
   return windowTicks.length > 1 ? buildCandlesFromTicks(windowTicks, intervalSec) : [];
 }
 
@@ -2146,7 +2146,7 @@ function computeFactorScoreAtIndex(candles, binanceWindow, sentimentWindow, idx)
     if (ls > 3) lsRatio = -4; else if (ls > 2) lsRatio = -2;
     else if (ls > 1.3) lsRatio = 2; else if (ls > 0.8) lsRatio = 0;
     else if (ls > 0.5) lsRatio = 2; else lsRatio = 4;
-    const topR = latest.top_ls_ratio || 1;
+    const topR = (latest as any).top_ls_ratio || 1;
     lsRatio = clampScore(lsRatio + (topR > 2 ? -1 : topR > 1.3 ? 1 : topR < 0.7 ? 1 : 0));
 
     // Taker Volume
@@ -2179,7 +2179,7 @@ function computeFactorScoreAtIndex(candles, binanceWindow, sentimentWindow, idx)
 
     // Whale Activity
     if (sentimentWindow.length >= 3) {
-      const tl = latest.top_ls_ratio || 1;
+      const tl = (latest as any).top_ls_ratio || 1;
       const te = sentimentWindow[0].top_ls_ratio || 1;
       const tTrend = tl - te;
       const tp = sentimentWindow.length >= 2 ? sentimentWindow[sentimentWindow.length - 2].top_ls_ratio : tl;
@@ -2304,7 +2304,7 @@ function backtestEngine(candles, binanceTicks, sentimentData, params = {}) {
     // Compute factor scores (now with sentiment)
     const { scores, atrPct, lastPrice } = computeFactorScoreAtIndex(candles, binanceWindow, sentimentWindow, i);
     // News factor: 0 in backtest (no historical news)
-    scores.news = 0;
+    (scores as any).news = 0;
 
     // Weighted composite
     const totalWeight = Object.values(weights).reduce((s, w) => s + w, 0);
@@ -2328,10 +2328,10 @@ function backtestEngine(candles, binanceTicks, sentimentData, params = {}) {
       const sr = findSupportResistance(recentSlice);
       const price = lastPrice;
       for (const l of (sr.support || [])) {
-        if (l.price < price && l.price > nearestSupport) nearestSupport = l.price;
+        if ((l as any).price < price && (l as any).price > nearestSupport) nearestSupport = (l as any).price;
       }
       for (const l of (sr.resistance || [])) {
-        if (l.price > price && l.price < nearestResistance) nearestResistance = l.price;
+        if ((l as any).price > price && (l as any).price < nearestResistance) nearestResistance = (l as any).price;
       }
     }
 
@@ -2343,9 +2343,9 @@ function backtestEngine(candles, binanceTicks, sentimentData, params = {}) {
       scores,
       composite,
       action: 'hold',
-      regime: context.regime.mode,
+      regime: (context as any).regime.mode,
       eventStatus: context.event.status,
-      basisZScore: context.basis.ready ? context.basis.zScore : null,
+      basisZScore: (context as any).basis.ready ? (context as any).basis.zScore : null,
       riskAction: context.risk.action,
       positionPct: context.risk.positionPct,
     });
@@ -2526,17 +2526,17 @@ function optimizeWeights(candles, binanceTicks) {
         }
       }
     }
-    best.weights[key] = bestForFactor;
+    (best as any).weights[key] = bestForFactor;
   }
 
   // Run final backtest with optimized weights
   const finalResult = backtestEngine(candles, binanceTicks, {
     entryThreshold: 2.0, holdBars: 12, stopLossPct: 3.0,
-    takeProfitPct: 5.0, leverage: 5, weights: best.weights
+    takeProfitPct: 5.0, leverage: 5, weights: (best as any).weights
   });
 
   return {
-    optimizedWeights: best.weights,
+    optimizedWeights: (best as any).weights,
     metrics: finalResult.metrics,
     trades: finalResult.trades,
     equityCurve: finalResult.equityCurve,
@@ -2546,16 +2546,16 @@ function optimizeWeights(candles, binanceTicks) {
 
 app.get('/api/backtest', async (req, res) => {
   try {
-    const tfConfig = getTimeframeConfig(req.query.tf || 'm5');
+    const tfConfig = getTimeframeConfig((req.query as any).tf || 'm5');
     const tf = tfConfig.tf;
     const rangeSec = tfConfig.rangeSec;
     const intervalSec = tfConfig.intervalSec;
-    const optimize = req.query.optimize === 'true';
-    const entryThreshold = parseFloat(req.query.entryThreshold) || activeParams.entryThreshold;
-    const holdBars = parseInt(req.query.holdBars) || activeParams.holdBars;
-    const stopLossPct = parseFloat(req.query.stopLossPct) || activeParams.stopLossPct;
-    const takeProfitPct = parseFloat(req.query.takeProfitPct) || activeParams.takeProfitPct;
-    const leverage = parseInt(req.query.leverage) || activeParams.leverage;
+    const optimize = (req.query as any).optimize === 'true';
+    const entryThreshold = parseFloat((req.query as any).entryThreshold) || (activeParams as any).entryThreshold;
+    const holdBars = parseInt((req.query as any).holdBars) || (activeParams as any).holdBars;
+    const stopLossPct = parseFloat((req.query as any).stopLossPct) || (activeParams as any).stopLossPct;
+    const takeProfitPct = parseFloat((req.query as any).takeProfitPct) || (activeParams as any).takeProfitPct;
+    const leverage = parseInt((req.query as any).leverage) || (activeParams as any).leverage;
 
     const now = Math.floor(Date.now() / 1000);
     const ticks = selectRange.all(now - rangeSec, now);
@@ -2575,10 +2575,10 @@ app.get('/api/backtest', async (req, res) => {
     const splitIdx = Math.floor(candles.length * 0.7);
     const trainCandles = candles.slice(0, splitIdx);
     const testCandles = candles.slice(splitIdx);
-    const trainBinance = binanceWindow.filter(t => t.ts <= trainCandles[trainCandles.length - 1].time);
-    const testBinance = binanceWindow.filter(t => t.ts > trainCandles[trainCandles.length - 1].time);
-    const trainSentiment = sentimentData.filter(t => t.ts <= trainCandles[trainCandles.length - 1].time);
-    const testSentiment = sentimentData.filter(t => t.ts > trainCandles[trainCandles.length - 1].time);
+    const trainBinance = binanceWindow.filter(t => (t as any).ts <= trainCandles[trainCandles.length - 1].time);
+    const testBinance = binanceWindow.filter(t => (t as any).ts > trainCandles[trainCandles.length - 1].time);
+    const trainSentiment = sentimentData.filter(t => (t as any).ts <= trainCandles[trainCandles.length - 1].time);
+    const testSentiment = sentimentData.filter(t => (t as any).ts > trainCandles[trainCandles.length - 1].time);
 
     if (optimize) {
       await autoOptimize();
@@ -2725,7 +2725,7 @@ app.get('/api/binance/price', async (req, res) => {
   try {
     const meta = await binanceMeta();
     res.json({
-      price: meta.price,
+      price: (meta as any).price,
       markPrice: meta.markPrice,
       indexPrice: meta.indexPrice,
       fundingRate: meta.fundingRate,
@@ -2755,7 +2755,7 @@ setInterval(async () => {
       binanceLine('1m', sharedMeta), binanceLine('5m', sharedMeta),
       binanceLine('15m', sharedMeta), binanceLine('1h', sharedMeta),
     ]);
-    binance.m1 = b1; binance.m5 = b5; binance.m15 = b15; binance.h1 = bh;
+    (binance as any).m1 = b1; (binance as any).m5 = b5; (binance as any).m15 = b15; (binance as any).h1 = bh;
     // Merge with existing Naver data (from last full broadcast)
     const payload = `data: ${JSON.stringify({ binance, serverTime: Date.now(), krwUsd: krwUsdRate })}\n\n`;
     clients.forEach(c => c.write(payload));
