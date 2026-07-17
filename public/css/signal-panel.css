@@ -431,6 +431,8 @@
   color: var(--text-bright);
   font-family: 'JetBrains Mono', monospace;
 }
+.bt-context { padding: 5px 0; color: var(--text); font-size: 9px; }
+.bt-context.warn { color: var(--yellow); }
 
 /* ── Risk Box ── */
 .risk-box { padding: 6px 8px; border-radius: 4px; font-size: 10px; margin-top: 6px; }

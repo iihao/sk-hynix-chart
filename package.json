@@ -10,7 +10,8 @@
     "build": "tsc",
     "build:test": "tsc -p tsconfig.test.json",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "audit:ticks": "node scripts/audit-spot-ticks.mjs"
   },
   "keywords": [],
   "author": "",

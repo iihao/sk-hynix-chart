@@ -16,7 +16,7 @@ test('normalizes indicator latest values', () => {
 
   assert.deepEqual(result, {
     rsi: 45, macdHist: 1.2, volRatio: 1.1, signals: [],
-    support: [], resistance: [], levels: null,
+    support: [], resistance: [], levels: null, tf: null,
   });
 });
 
@@ -29,6 +29,13 @@ test('preserves currency-safe indicator level groups', () => {
     latest: {rsi: 45, macdHist: 1.2, volRatio: 1.1}, signals: [], levels,
   });
   assert.deepEqual(result.levels, levels);
+});
+
+test('normalizes server timeframe aliases for dashboard state', () => {
+  const result = normalizeIndicators({
+    tf: '5m', latest: {rsi: 45, macdHist: 1.2, volRatio: 1.1}, signals: [],
+  });
+  assert.equal(result.tf, 'm5');
 });
 
 test('normalizes factor direction for display', () => {
@@ -108,10 +115,14 @@ test('normalizes the domain backtest response shape', () => {
     metrics: { winRate: 50, totalReturn: 2, sharpe: 0.4 },
     trades: [{ entry: 100, exit: 102, pnl: 10, pnlPct: 2, direction: 'long' }],
     weights: { momentum: 0.8 },
+    costs: {fees: 2, slippage: 1, funding: 0},
+    test: {trades: 2},
   });
   assert.equal(result.metrics.sharpe, 0.4);
   assert.equal(result.trades[0].entry, 100);
   assert.deepEqual(result.weights, { momentum: 0.8 });
+  assert.equal(result.costs.fees, 2);
+  assert.equal(result.test.trades, 2);
 });
 
 test('uses a valid fallback response source', () => {

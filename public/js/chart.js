@@ -242,21 +242,20 @@ export function pushData(tf, data, bnData) {
   const ld = $('load-' + tf);
   if (ld) ld.classList.add('hide');
 
-  if (!c.initialFramed) {
-    const visibleBars = 120;
-    // Use naverLine data when source is naver, otherwise use candlestick data
-    const allData = state.currentSource === 'naver' 
-      ? (data?.candles || [])
-      : (data?.candles || []);
-    const barCount = visibleBars;
-    if (allData.length > barCount) {
-      const from = allData[allData.length - barCount].time;
+  // Set visible range after data is loaded
+  const shouldFrame = !c.initialFramed || c.pendingFrame;
+  if (shouldFrame) {
+    const visibleBars = TF_VISIBLE[tf] || 120;
+    const allData = data?.candles || [];
+    if (allData.length > visibleBars) {
+      const from = allData[allData.length - visibleBars].time;
       const to = allData[allData.length - 1].time;
       c.chart.timeScale().setVisibleRange({ from, to });
     } else {
       c.chart.timeScale().fitContent();
     }
     c.initialFramed = true;
+    c.pendingFrame = false;
   }
 }
 
@@ -267,6 +266,9 @@ export function resetChartFraming() {
 }
 
 /* ── Tab Switching ── */
+// Timeframe display ranges (in candles)
+const TF_VISIBLE = { m1: 120, m5: 120, m15: 120, h1: 120 };
+
 export function switchTF(tf, btn) {
   if (tf === state.activeTF) return;
   state.activeTF = tf;
@@ -279,25 +281,11 @@ export function switchTF(tf, btn) {
   if (target) {
     requestAnimationFrame(() => {
       target.classList.add('active');
+      // Defer range setting to after data is loaded
       setTimeout(() => {
         const c = state.charts[tf];
         if (c) {
-          const visibleBars = 120;
-          // Use naverLine data when source is naver, otherwise use candlestick series
-          const activeSeries = state.currentSource === 'naver' ? c.naverLine : c.series;
-          const dataLength = activeSeries?.data?.length || 0;
-          if (dataLength > visibleBars) {
-            const from = activeSeries.data()[dataLength - visibleBars]?.time;
-            const to = activeSeries.data()[dataLength - 1]?.time;
-            if (from && to) {
-              c.chart.timeScale().setVisibleRange({ from, to });
-            } else {
-              c.chart.timeScale().fitContent();
-            }
-          } else {
-            c.chart.timeScale().fitContent();
-          }
-          c.initialFramed = true;
+          c.pendingFrame = true; // Signal pushData to set range
         }
       }, 320);
     });

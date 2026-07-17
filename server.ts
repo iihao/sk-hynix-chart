@@ -88,6 +88,12 @@ const SYMBOL: string = '000660.KS';
 const NAVER_CODE: string = '000660';
 const KRW_USD_DEFAULT: number = 1544;
 let krwUsdRate: number = KRW_USD_DEFAULT;
+let insertFxTick: any = null;
+
+function storeFxObservation(rate: number, source: string): void {
+  if (!insertFxTick || !Number.isFinite(rate) || rate <= 0) return;
+  insertFxTick.run(Math.floor(Date.now() / 1000), null, null, rate, source);
+}
 const FACTOR_DEFS = [
   { category: 'momentum', label: '价格动量' },
   { category: 'funding', label: '资金费率' },
@@ -154,6 +160,7 @@ async function fetchExchangeRate() {
       if (!isNaN(rate)) {
         krwUsdRate = Math.round(rate * 100) / 100;
         markSourceHealthy('fx', { updatedAt: Date.now(), detail: `USD/KRW ${krwUsdRate}` });
+        storeFxObservation(krwUsdRate, 'naver');
         console.log(`[FX] USD/KRW = ${krwUsdRate} (Naver)`);
         return;
       }
@@ -167,6 +174,7 @@ async function fetchExchangeRate() {
     if (data && data.rates && data.rates.KRW) {
       krwUsdRate = Math.round(data.rates.KRW * 100) / 100; // Keep 2 decimals
       markSourceHealthy('fx', { updatedAt: Date.now(), detail: `USD/KRW ${krwUsdRate}` });
+      storeFxObservation(krwUsdRate, 'frankfurter');
       console.log(`[FX] USD/KRW = ${krwUsdRate} (frankfurter/ECB)`);
       return;
     }
@@ -179,16 +187,13 @@ async function fetchExchangeRate() {
     if (data && data.result === 'success' && data.rates && data.rates.KRW) {
       krwUsdRate = Math.round(data.rates.KRW * 100) / 100;
       markSourceHealthy('fx', { updatedAt: Date.now(), detail: `USD/KRW ${krwUsdRate}` });
+      storeFxObservation(krwUsdRate, 'open-er-api');
       console.log(`[FX] USD/KRW = ${krwUsdRate} (open.er-api fallback)`);
     }
   } catch (e) {
     console.error(`[FX] open.er-api failed: ${e.message}, using cached ${krwUsdRate}`);
   }
 }
-// Initial fetch + hourly refresh
-fetchExchangeRate();
-setInterval(fetchExchangeRate, 3600000);
-
 app.use(express.static(path.join(PROJECT_ROOT, 'public')));
 
 // ══════════════════════════════════════════
@@ -208,6 +213,20 @@ db.exec(`
     after_hours_session TEXT
   );
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS fx_ticks (
+    ts INTEGER PRIMARY KEY,
+    bid REAL,
+    ask REAL,
+    mid REAL NOT NULL,
+    source TEXT NOT NULL
+  );
+`);
+insertFxTick = db.prepare('INSERT OR REPLACE INTO fx_ticks (ts, bid, ask, mid, source) VALUES (?, ?, ?, ?, ?)');
+const selectFxRange = db.prepare('SELECT ts, bid, ask, mid, source FROM fx_ticks WHERE ts >= ? AND ts <= ? ORDER BY ts');
+const selectFxAtOrBefore = db.prepare('SELECT ts, bid, ask, mid, source FROM fx_ticks WHERE ts <= ? ORDER BY ts DESC LIMIT 1');
+fetchExchangeRate();
+setInterval(fetchExchangeRate, 3600000);
 // Migration: add columns if they don't exist (for existing DBs)
 try { db.exec('ALTER TABLE ticks ADD COLUMN after_hours_price INTEGER'); } catch(e) {}
 try { db.exec('ALTER TABLE ticks ADD COLUMN after_hours_session TEXT'); } catch(e) {}
@@ -1305,7 +1324,7 @@ function findSupportResistance(candles: Array<{ high: number; low: number; close
 // Use new domain module for /api/indicators
 app.get('/api/indicators', (req, res) => {
   try {
-    const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
+    const { tf, rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
     const now = Math.floor(Date.now() / 1000);
     const ticks = selectRange.all(now - rangeSec, now) as TickData[];
     
@@ -1333,6 +1352,7 @@ app.get('/api/indicators', (req, res) => {
     else if (latest.macd.dif < latest.macd.dea && latest.macd.histogram < 0) macdState = 'bearish';
     
     res.json({
+      tf,
       rsi: result.rsi,
       macd: result.macd,
       bollinger: result.bollinger,
@@ -1897,7 +1917,7 @@ app.post('/api/news/refresh', async (req, res) => {
 // Use new domain module for /api/factors
 app.get('/api/factors', (req, res) => {
   try {
-    const { rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
+    const { tf, rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
     const now = Math.floor(Date.now() / 1000);
     const ticks = selectRange.all(now - rangeSec, now) as TickData[];
     
@@ -1934,7 +1954,7 @@ app.get('/api/factors', (req, res) => {
       candles,
       fundingRate: binanceFreshness.eligible ? (binanceLatest as any).funding_rate || 0 : undefined,
       krwUsd: krwUsdRate,
-      prevKrwUsd: krwUsdRate,
+      prevKrwUsd: (selectFxAtOrBefore.get(now - Math.max(intervalSec * 12, 3600)) as any)?.mid,
       naverPrice,
       binancePrice,
       fxRate: krwUsdRate,
@@ -2020,6 +2040,7 @@ app.get('/api/factors', (req, res) => {
     });
     
     res.json({
+      tf,
       ...result,
       marketContext: {
         koreaSession,
@@ -2067,7 +2088,8 @@ function toDomainBacktestParams(params: Record<string, unknown>, weights: Record
     takeProfitPct: params.takeProfitPct as number,
     leverage: params.leverage as number,
     weights: { ...weights },
-    fxRate: krwUsdRate,
+    timeframe: normalizeTimeframe((params.tf as string) || 'm5') as 'm1' | 'm5' | 'm15' | 'h1',
+    fxTicks: (params.fxTicks as any[]) || [],
   };
 }
 
@@ -2086,6 +2108,7 @@ async function autoOptimize() {
     const candles = ticks.length > 1 ? buildCandlesFromTicks(ticks, 300) : [];
     const binanceWindow = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
     const sentimentData = selectSentimentRange.all(now - rangeSec, now) as BacktestSentimentRow[];
+    const fxWindow = selectFxRange.all(now - rangeSec, now) as any[];
 
     if (candles.length < 50) {
       console.log('[optimize] not enough data, skipping');
@@ -2219,6 +2242,7 @@ app.get('/api/backtest', async (req, res) => {
 
     const binanceWindow = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
     const sentimentData = selectSentimentRange.all(now - rangeSec, now) as BacktestSentimentRow[];
+    const fxWindow = selectFxRange.all(now - rangeSec, now) as any[];
 
     // Train/test split (70/30)
     const splitIdx = Math.floor(candles.length * 0.7);
@@ -2232,7 +2256,7 @@ app.get('/api/backtest', async (req, res) => {
     if (optimize) {
       await autoOptimize();
       // Run on full, train, and test sets
-      const optimizedParams = toDomainBacktestParams({ ...activeParams, leverage }, activeWeights);
+      const optimizedParams = toDomainBacktestParams({ ...activeParams, leverage, tf, fxTicks: fxWindow }, activeWeights);
       const fullResult = backtestEngine(candles, binanceWindow as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], optimizedParams);
       const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, optimizedParams);
       const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], optimizedParams);
@@ -2247,7 +2271,7 @@ app.get('/api/backtest', async (req, res) => {
       });
     } else {
       const requestedParams = toDomainBacktestParams(
-        { entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage }, activeWeights);
+        { entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage, tf, fxTicks: fxWindow }, activeWeights);
       const fullResult = backtestEngine(candles, binanceWindow as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], requestedParams);
       const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, requestedParams);
       const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], requestedParams);

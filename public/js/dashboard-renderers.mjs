@@ -43,7 +43,7 @@ export function renderSignals(document, element, signals) {
   }
 }
 
-export function renderFactors(document, element, factors) {
+export function renderFactors(document, element, factors, omittedFactors = []) {
   if (!element) return;
   clear(element);
   if (!Array.isArray(factors) || factors.length === 0) {
@@ -91,6 +91,9 @@ export function renderFactors(document, element, factors) {
   // Add composite summary
   const summary = document.createElement('div');
   summary.className = 'factor-summary';
+  summary.textContent = omittedFactors.length > 0
+    ? `已省略 ${omittedFactors.map((item) => item.category).join(', ')}`
+    : '数据覆盖完整';
   element.appendChild(summary);
 }
 

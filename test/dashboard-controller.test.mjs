@@ -66,8 +66,8 @@ function createHarness({ deferredFetch = false } = {}) {
     connectSse() {
       eventSources[eventSources.length - 1].onopen?.();
     },
-    resolveFetch(index, payload) {
-      pendingFetches[index]({ ok: true, json: async () => payload });
+    resolveFetch(index, payload, ok = true) {
+      pendingFetches[index]({ ok, status: ok ? 200 : 503, json: async () => payload });
     },
   };
 }
@@ -79,6 +79,17 @@ test('starts with Naver and performs one bootstrap fetch', async () => {
 
   assert.deepEqual(harness.fetchUrls, ['/api/data?source=naver']);
   assert.deepEqual(harness.eventSources.map((source) => source.url), ['/api/stream?source=naver']);
+  controller.stop();
+});
+
+test('does not report offline when bootstrap fails after SSE is live', async () => {
+  const harness = createHarness({deferredFetch: true});
+  const controller = createDashboardController(harness.dependencies);
+  const started = controller.start();
+  harness.connectSse();
+  harness.resolveFetch(0, {error: 'unavailable'}, false);
+  await started;
+  assert.equal(controller.getState().connection, 'live');
   controller.stop();
 });
 

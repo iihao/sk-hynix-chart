@@ -136,7 +136,9 @@ export function createDashboardController(dependencies) {
         return snapshot;
       } catch (error) {
         if (revision === sourceRevision) {
-          emitConnection(state.snapshot ? 'fallback' : 'offline');
+          if (state.connection !== 'live') {
+            emitConnection(state.snapshot ? 'fallback' : 'offline');
+          }
           onError(error instanceof Error ? error.message : String(error));
         }
         return null;

@@ -9,7 +9,7 @@ import {
   $,
   showError,
 } from './utils.js';
-import { makeChart, pushData, resetChartFraming, switchTF, updateSupportResistance } from './chart.js';
+import { makeChart, pushData, resetChartFraming, switchTF as switchChartTimeframe, updateSupportResistance } from './chart.js';
 import {
   toggleCalculator,
   fpSetDirection,
@@ -29,6 +29,7 @@ import {
 } from './dashboard-renderers.mjs';
 import {
   buildBacktestQuery,
+  buildPanelUrl,
   normalizeBacktest,
   normalizeFactors,
   normalizeIndicators,
@@ -199,6 +200,12 @@ function switchCurrency(cur) {
   updateHeader(state.rawData);
 }
 
+function switchTF(tf, btn) {
+  switchChartTimeframe(tf, btn);
+  void updateIndicators();
+  void updateFactors();
+}
+
 /* ── Source Switch ── */
 async function switchSource(src) {
   state.currentSource = src;
@@ -231,9 +238,11 @@ function nextPanelSignal(panel) {
 async function updateIndicators() {
   const signal = nextPanelSignal('indicators');
   try {
-    const res = await fetch('/api/indicators', { signal });
+    const requestedTf = state.activeTF;
+    const res = await fetch(buildPanelUrl('/api/indicators', requestedTf), { signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = normalizeIndicators(await res.json());
+    if (data.tf && data.tf !== state.activeTF) return;
 
     const rsiEl = $('indRsi');
     const macdEl = $('indMacd');
@@ -280,11 +289,13 @@ async function updateIndicators() {
 async function updateFactors() {
   const signal = nextPanelSignal('factors');
   try {
-    const res = await fetch('/api/factors', { signal });
+    const requestedTf = state.activeTF;
+    const res = await fetch(buildPanelUrl('/api/factors', requestedTf), { signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = normalizeFactors(await res.json());
+    if (data.tf && data.tf !== state.activeTF) return;
     
-    renderFactors(document, $('factorTags'), data.factors);
+    renderFactors(document, $('factorTags'), data.factors, data.omittedFactors);
     
     if (data.direction) {
       const dirText = $('dirText');
@@ -312,6 +323,11 @@ async function updateFactors() {
     renderMarketContext(document, $('marketContextArea'), data.marketContext);
     $('riskArea').hidden = !data.risk;
     $('basisArea').hidden = !data.basis;
+    // Show strategy section when data is available
+    const stratEl = $('stratSection');
+    if (stratEl && data.direction && data.direction.code !== 'neutral') {
+      stratEl.style.display = 'block';
+    }
     dashboardController.markPanel('factors', 'ready');
   } catch (e) {
     if (e.name === 'AbortError') return;
@@ -354,6 +370,7 @@ async function runBacktest(optimize = false) {
       stopLoss: sl,
       takeProfit: tp,
       optimize,
+      timeframe: state.activeTF,
     });
     const res = await fetch('/api/backtest?' + params);
     if (!res.ok) throw new Error('Backtest failed');
@@ -389,6 +406,15 @@ async function runBacktest(optimize = false) {
       metricsDiv.appendChild(createMetric('收益', data.metrics.totalReturn.toFixed(2) + '%'));
       metricsDiv.appendChild(createMetric('夏普', data.metrics.sharpe.toFixed(2)));
       metricsEl.appendChild(metricsDiv);
+    }
+
+    const contextEl = $('btContextArea');
+    if (contextEl) {
+      const testTrades = Number(data.test?.trades) || 0;
+      contextEl.className = testTrades < 3 ? 'bt-context warn' : 'bt-context';
+      contextEl.textContent = testTrades < 3
+        ? `测试集仅 ${testTrades} 笔交易，结果样本不足`
+        : `测试集 ${testTrades} 笔交易`;
     }
     
     // Update weights if optimized

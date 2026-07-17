@@ -506,7 +506,7 @@ export function calculateAllFactors(params: {
   candles: Array<{ close: number; high: number; low: number; volume: number }>;
   fundingRate?: number;
   krwUsd: number;
-  prevKrwUsd: number;
+  prevKrwUsd?: number;
   naverPrice: number;
   binancePrice?: number;
   fxRate: number;
@@ -531,10 +531,15 @@ export function calculateAllFactors(params: {
   const factors: Factor[] = [
     factorMomentum(params.candles),
     factorVolatility(params.candles),
-    factorExchangeRate(params.krwUsd, params.prevKrwUsd),
     factorIndicatorMomentum(params.rsi, params.macdHist),
     factorSupportResistance(params.candles[params.candles.length - 1]?.close || 0, params.support, params.resistance),
   ];
+
+  if (params.prevKrwUsd !== undefined) {
+    factors.push(factorExchangeRate(params.krwUsd, params.prevKrwUsd));
+  } else {
+    omittedFactors.push({ category: 'fx', reason: 'missing' });
+  }
 
   if (params.fundingRate !== undefined) factors.push(factorFundingRate(params.fundingRate));
   else omittedFactors.push({ category: 'funding', reason: 'stale' });

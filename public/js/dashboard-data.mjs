@@ -13,6 +13,12 @@ function asNumber(value, field) {
   return number;
 }
 
+function normalizeDashboardTf(value) {
+  const aliases = {'1m': 'm1', '5m': 'm5', '15m': 'm15', '1h': 'h1'};
+  if (['m1', 'm5', 'm15', 'h1'].includes(value)) return value;
+  return aliases[value] || null;
+}
+
 export function normalizeIndicators(payload) {
   const data = asObject(payload, 'indicators');
   const latest = asObject(data.latest, 'indicators.latest');
@@ -24,6 +30,7 @@ export function normalizeIndicators(payload) {
     support: Array.isArray(data.support) ? data.support : [],
     resistance: Array.isArray(data.resistance) ? data.resistance : [],
     levels: data.levels && typeof data.levels === 'object' ? data.levels : null,
+    tf: normalizeDashboardTf(data.tf),
   };
 }
 
@@ -40,11 +47,13 @@ export function normalizeFactors(payload) {
   const labels = { long: '做多', short: '做空', neutral: '中性' };
   return {
     factors: data.factors,
+    omittedFactors: Array.isArray(data.omittedFactors) ? data.omittedFactors : [],
     marketContext: data.marketContext && typeof data.marketContext === 'object'
       ? data.marketContext
       : null,
     risk: data.risk && typeof data.risk === 'object' ? data.risk : null,
     basis: data.basis && typeof data.basis === 'object' ? data.basis : null,
+    tf: normalizeDashboardTf(data.tf),
     direction: {
       code: data.direction,
       label: labels[data.direction],
@@ -60,8 +69,13 @@ export function buildBacktestQuery(input) {
     holdBars: String(asNumber(input.hold, 'holdBars')),
     stopLossPct: String(asNumber(input.stopLoss, 'stopLossPct')),
     takeProfitPct: String(asNumber(input.takeProfit, 'takeProfitPct')),
+    tf: input.timeframe || 'm5',
     optimize: input.optimize ? 'true' : 'false',
   });
+}
+
+export function buildPanelUrl(path, timeframe) {
+  return `${path}?${new URLSearchParams({tf: timeframe || 'm5'})}`;
 }
 
 export function normalizeBacktest(payload) {
@@ -91,6 +105,8 @@ export function normalizeBacktest(payload) {
       };
     }),
     weights: data.weights || data.optimizedWeights || data.activeWeights || null,
+    costs: data.costs && typeof data.costs === 'object' ? data.costs : null,
+    test: data.test && typeof data.test === 'object' ? data.test : null,
   };
 }
 
