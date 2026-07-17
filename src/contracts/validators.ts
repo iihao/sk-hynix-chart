@@ -67,6 +67,6 @@ export function parseBacktestResponse(value: unknown): BacktestResponse {
   const metrics = expectObject(data.metrics, 'metrics');
   expectNumber(metrics.winRate, 'metrics.winRate');
   expectNumber(metrics.totalReturn, 'metrics.totalReturn');
-  expectNumber(metrics.sharpeRatio, 'metrics.sharpeRatio');
+  expectNumber(metrics.sharpe ?? metrics.sharpeRatio, 'metrics.sharpe');
   return data as unknown as BacktestResponse;
 }

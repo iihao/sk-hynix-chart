@@ -69,19 +69,19 @@ export function normalizeBacktest(payload) {
     metrics: {
       winRate: asNumber(metrics.winRate, 'metrics.winRate'),
       totalReturn: asNumber(metrics.totalReturn, 'metrics.totalReturn'),
-      sharpe: asNumber(metrics.sharpeRatio, 'metrics.sharpeRatio'),
+      sharpe: asNumber(metrics.sharpe ?? metrics.sharpeRatio, 'metrics.sharpe'),
     },
     trades: data.trades.map((trade, index) => {
       const item = asObject(trade, `trades[${index}]`);
       return {
         ...item,
-        entry: asNumber(item.entryPrice, `trades[${index}].entryPrice`),
-        exit: asNumber(item.exitPrice, `trades[${index}].exitPrice`),
+        entry: asNumber(item.entry ?? item.entryPrice, `trades[${index}].entry`),
+        exit: asNumber(item.exit ?? item.exitPrice, `trades[${index}].exit`),
         pnl: asNumber(item.pnl, `trades[${index}].pnl`),
         pnlPct: asNumber(item.pnlPct, `trades[${index}].pnlPct`),
       };
     }),
-    weights: data.optimizedWeights || data.activeWeights || null,
+    weights: data.weights || data.optimizedWeights || data.activeWeights || null,
   };
 }
 

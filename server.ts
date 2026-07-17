@@ -1746,6 +1746,22 @@ let activeParams = { entryThreshold: 2.0, holdBars: 12, stopLossPct: 3.0, takePr
 let lastOptimizeTime = 0;
 let optimizeRunning = false;
 
+function toDomainBacktestParams(params, weights = activeWeights) {
+  return {
+    threshold: params.entryThreshold ?? params.threshold,
+    holdBars: params.holdBars,
+    stopLossPct: params.stopLossPct,
+    takeProfitPct: params.takeProfitPct,
+    leverage: params.leverage,
+    weights: { ...weights },
+  };
+}
+
+function scoreBacktestResult(metrics) {
+  return (metrics.sharpe || 0) * Math.sqrt(metrics.totalTrades) *
+    (metrics.winRate / 100) - metrics.maxDrawdown / 10;
+}
+
 async function autoOptimize() {
   if (optimizeRunning) return;
   optimizeRunning = true;
@@ -1783,13 +1799,10 @@ async function autoOptimize() {
 
     for (const th of thresholds) {
       for (const hold of holdOptions) {
-        const result = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, {
-          entryThreshold: th, holdBars: hold, leverage: 5,
-          weights: { ...DEFAULT_WEIGHTS }, useSR: true
-        });
+        const result = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any,
+          toDomainBacktestParams({ entryThreshold: th, holdBars: hold, leverage: 5 }, DEFAULT_WEIGHTS));
         if (result.metrics && result.metrics.totalTrades >= 3) {
-          const score = result.metrics?.sharpe || 0 * Math.sqrt(result.metrics.totalTrades) *
-            (result.metrics.winRate / 100) - result.metrics.maxDrawdown / 10;
+          const score = scoreBacktestResult(result.metrics);
           if (bestScore == null || score > bestScore) {
             bestScore = score;
             bestParams = { ...bestParams, entryThreshold: th, holdBars: hold };
@@ -1810,12 +1823,10 @@ async function autoOptimize() {
       let bestFactorScore = -Infinity;
       for (const w of weightOptions) {
         const testWeights = { ...DEFAULT_WEIGHTS, [key]: w };
-        const result = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, {
-          ...bestParams, leverage: 5, weights: testWeights, useSR: true
-        });
+        const result = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any,
+          toDomainBacktestParams({ ...bestParams, leverage: 5 }, testWeights));
         if (result.metrics && result.metrics.totalTrades >= 3) {
-          const score = result.metrics?.sharpe || 0 * Math.sqrt(result.metrics.totalTrades) *
-            (result.metrics.winRate / 100) - result.metrics.maxDrawdown / 10;
+          const score = scoreBacktestResult(result.metrics);
           if (score > bestFactorScore) {
             bestFactorScore = score;
             bestForFactor = w;
@@ -1826,17 +1837,12 @@ async function autoOptimize() {
     }
 
     // Validate on training set
-    const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, {
-      ...bestParams, leverage: 5, weights: bestWeights, useSR: true
-    });
+    const optimizedParams = toDomainBacktestParams({ ...bestParams, leverage: 5 }, bestWeights);
+    const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, optimizedParams);
     // Validate on test set (out-of-sample)
-    const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, {
-      ...bestParams, leverage: 5, weights: bestWeights, useSR: true
-    });
+    const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, optimizedParams);
     // Full dataset validation
-    const fullResult = backtestEngine(candles, binanceWindow, sentimentData, {
-      ...bestParams, leverage: 5, weights: bestWeights, useSR: true
-    });
+    const fullResult = backtestEngine(candles, binanceWindow, sentimentData, optimizedParams);
 
     activeWeights = bestWeights;
     activeParams = { ...activeParams, ...bestParams };
@@ -1905,15 +1911,10 @@ app.get('/api/backtest', async (req, res) => {
     if (optimize) {
       await autoOptimize();
       // Run on full, train, and test sets
-      const fullResult = backtestEngine(candles, binanceWindow, sentimentData, {
-        ...activeParams, leverage, weights: { ...activeWeights }, useSR: true
-      });
-      const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, {
-        ...activeParams, leverage, weights: { ...activeWeights }, useSR: true
-      });
-      const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, {
-        ...activeParams, leverage, weights: { ...activeWeights }, useSR: true
-      });
+      const optimizedParams = toDomainBacktestParams({ ...activeParams, leverage }, activeWeights);
+      const fullResult = backtestEngine(candles, binanceWindow, sentimentData, optimizedParams);
+      const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, optimizedParams);
+      const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, optimizedParams);
       res.json({
         params: { tf, optimize: true, ...activeParams },
         ...fullResult,
@@ -1924,18 +1925,11 @@ app.get('/api/backtest', async (req, res) => {
         optimizeTime: lastOptimizeTime ? new Date(lastOptimizeTime).toISOString() : null,
       });
     } else {
-      const fullResult = backtestEngine(candles, binanceWindow, sentimentData, {
-        entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage,
-        weights: { ...activeWeights }, useSR: true
-      });
-      const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, {
-        entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage,
-        weights: { ...activeWeights }, useSR: true
-      });
-      const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, {
-        entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage,
-        weights: { ...activeWeights }, useSR: true
-      });
+      const requestedParams = toDomainBacktestParams(
+        { entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage }, activeWeights);
+      const fullResult = backtestEngine(candles, binanceWindow, sentimentData, requestedParams);
+      const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, requestedParams);
+      const testResult = backtestEngine(testCandles, testBinance as any, testSentiment, requestedParams);
       res.json({
         params: { tf, entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage },
         ...fullResult,

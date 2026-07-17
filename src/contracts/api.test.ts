@@ -110,6 +110,26 @@ describe('dashboard API contracts', () => {
     assert.equal(value.metrics?.sharpeRatio, 0.3);
   });
 
+  it('accepts the domain backtest response shape', () => {
+    const value = parseBacktestResponse({
+      metrics: {
+        totalReturn: 1,
+        winRate: 40,
+        profitFactor: 1.2,
+        sharpe: 0.3,
+        maxDrawdown: 2,
+        totalTrades: 5,
+        avgWin: 2,
+        avgLoss: 1,
+      },
+      trades: [{ entry: 100, exit: 102, pnl: 10, pnlPct: 2, direction: 'long' }],
+      equityCurve: [10000, 10010],
+      factorHistory: [],
+      weights: {},
+    });
+    assert.equal(value.metrics?.sharpe, 0.3);
+  });
+
   it('rejects malformed factor responses', () => {
     assert.throws(() => parseFactorsResponse({ factors: 'bad' }));
   });

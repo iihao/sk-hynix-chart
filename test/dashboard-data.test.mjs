@@ -75,6 +75,17 @@ test('preserves backtest error payloads', () => {
   assert.equal(result.metrics, null);
 });
 
+test('normalizes the domain backtest response shape', () => {
+  const result = normalizeBacktest({
+    metrics: { winRate: 50, totalReturn: 2, sharpe: 0.4 },
+    trades: [{ entry: 100, exit: 102, pnl: 10, pnlPct: 2, direction: 'long' }],
+    weights: { momentum: 0.8 },
+  });
+  assert.equal(result.metrics.sharpe, 0.4);
+  assert.equal(result.trades[0].entry, 100);
+  assert.deepEqual(result.weights, { momentum: 0.8 });
+});
+
 test('uses a valid fallback response source', () => {
   assert.equal(resolveResponseSource('yahoo', { source: 'naver' }), 'naver');
   assert.equal(resolveResponseSource('naver', { source: 'invalid' }), 'naver');
