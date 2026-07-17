@@ -229,9 +229,12 @@ export function pushData(tf, data, bnData) {
   if (ld) ld.classList.add('hide');
 
   if (!c.initialFramed) {
-    const visibleBars = { m1: 120, m5: 120, m15: 120, h1: 120 };
-    const allData = data?.candles || [];
-    const barCount = visibleBars[tf] || 120;
+    const visibleBars = 120;
+    // Use naverLine data when source is naver, otherwise use candlestick data
+    const allData = state.currentSource === 'naver' 
+      ? (data?.candles || [])
+      : (data?.candles || []);
+    const barCount = visibleBars;
     if (allData.length > barCount) {
       const from = allData[allData.length - barCount].time;
       const to = allData[allData.length - 1].time;
@@ -265,12 +268,13 @@ export function switchTF(tf, btn) {
       setTimeout(() => {
         const c = state.charts[tf];
         if (c) {
-          const visibleBars = { m1: 120, m5: 120, m15: 120, h1: 120 };
-          const barCount = visibleBars[tf] || 120;
-          const dataLength = c.series?.data?.length || 0;
-          if (dataLength > barCount) {
-            const from = c.series.data()[dataLength - barCount]?.time;
-            const to = c.series.data()[dataLength - 1]?.time;
+          const visibleBars = 120;
+          // Use naverLine data when source is naver, otherwise use candlestick series
+          const activeSeries = state.currentSource === 'naver' ? c.naverLine : c.series;
+          const dataLength = activeSeries?.data?.length || 0;
+          if (dataLength > visibleBars) {
+            const from = activeSeries.data()[dataLength - visibleBars]?.time;
+            const to = activeSeries.data()[dataLength - 1]?.time;
             if (from && to) {
               c.chart.timeScale().setVisibleRange({ from, to });
             } else {
