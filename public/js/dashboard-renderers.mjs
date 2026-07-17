@@ -52,13 +52,46 @@ export function renderFactors(document, element, factors) {
   }
   for (const factor of factors) {
     const score = Number(factor.score) || 0;
+    const weight = Number(factor.weight) || 0;
     const row = document.createElement('div');
     row.className = `factor-row ${score > 0 ? 'bull' : score < 0 ? 'bear' : 'neut'}`;
-    appendText(document, row, 'span', 'factor-name', factor.label || '未命名因子');
-    appendText(document, row, 'span', 'factor-detail', factor.detail || '');
+    
+    // Factor name with weight indicator
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'factor-name';
+    nameSpan.textContent = factor.label || '未命名因子';
+    row.appendChild(nameSpan);
+    
+    // Score bar visualization
+    const barContainer = document.createElement('span');
+    barContainer.className = 'factor-bar-container';
+    const bar = document.createElement('span');
+    bar.className = 'factor-bar';
+    const barWidth = Math.min(100, Math.abs(score) * 10);
+    if (bar.style) {
+      bar.style.width = `${barWidth}%`;
+      bar.style.left = score >= 0 ? '50%' : `${50 - barWidth}%`;
+    }
+    barContainer.appendChild(bar);
+    row.appendChild(barContainer);
+    
+    // Score value
     appendText(document, row, 'span', 'factor-score', `${score > 0 ? '+' : ''}${score.toFixed(1)}`);
+    
+    // Detail tooltip
+    const detailSpan = document.createElement('span');
+    detailSpan.className = 'factor-detail';
+    detailSpan.textContent = factor.detail || '';
+    detailSpan.title = `权重: ${weight.toFixed(2)}`;
+    row.appendChild(detailSpan);
+    
     element.appendChild(row);
   }
+  
+  // Add composite summary
+  const summary = document.createElement('div');
+  summary.className = 'factor-summary';
+  element.appendChild(summary);
 }
 
 function contextRow(document, label, value, tone = '') {

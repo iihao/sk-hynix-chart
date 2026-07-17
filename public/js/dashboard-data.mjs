@@ -23,6 +23,7 @@ export function normalizeIndicators(payload) {
     signals: Array.isArray(data.signals) ? data.signals : [],
     support: Array.isArray(data.support) ? data.support : [],
     resistance: Array.isArray(data.resistance) ? data.resistance : [],
+    levels: data.levels && typeof data.levels === 'object' ? data.levels : null,
   };
 }
 

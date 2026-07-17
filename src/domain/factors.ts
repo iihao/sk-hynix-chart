@@ -11,6 +11,7 @@ export interface Factor {
 
 export interface FactorResult {
   factors: Factor[];
+  omittedFactors: Array<{ category: string; reason: 'missing' | 'stale' | 'unsupported' }>;
   composite: number;
   direction: 'long' | 'short' | 'neutral';
   confidence: number;
@@ -19,22 +20,36 @@ export interface FactorResult {
 export function calculateWeightedComposite(
   factors: Factor[],
   overrides: Record<string, number> = {},
-): Omit<FactorResult, 'factors'> {
+): Omit<FactorResult, 'factors' | 'omittedFactors'> {
   let weightedScore = 0;
   let totalWeight = 0;
+  let positiveCount = 0;
+  let negativeCount = 0;
+  
   for (const factor of factors) {
     const weight = overrides[factor.category] ?? factor.weight;
     if (!Number.isFinite(weight) || weight <= 0) continue;
     weightedScore += factor.score * weight;
     totalWeight += weight;
+    if (factor.score > 0) positiveCount++;
+    else if (factor.score < 0) negativeCount++;
   }
 
   const composite = totalWeight > 0 ? weightedScore / totalWeight : 0;
-  const direction = composite > 2 ? 'long' : composite < -2 ? 'short' : 'neutral';
+  const direction = composite > 1.5 ? 'long' : composite < -1.5 ? 'short' : 'neutral';
+  
+  // Confidence based on composite strength and factor consensus
+  const factorConsensus = factors.length > 0 
+    ? Math.max(positiveCount, negativeCount) / factors.length 
+    : 0;
+  const confidence = Math.min(100, Math.round(
+    Math.abs(composite) * 12 + factorConsensus * 30
+  ));
+  
   return {
     composite,
     direction,
-    confidence: Math.min(100, Math.abs(composite) * 15),
+    confidence,
   };
 }
 
@@ -442,22 +457,27 @@ export function factorWhaleActivity(sentimentRows: Array<{ ts: number; top_ls_ra
   const prevHour = unique.length >= 2 ? unique[unique.length - 2].top_ls_ratio : latest;
   const shortTrend = latest - prevHour;
   
+  // Whale long percentage for display
+  const whaleLongPct = latest / (1 + latest) * 100;
+  
   let score = 0;
-  if (latest > 2 && shortTrend > 0.1) score = 4;
-  else if (latest > 1.5 && shortTrend > 0.05) score = 2;
-  else if (latest < 0.7 && shortTrend < -0.1) score = -4;
-  else if (latest < 0.8 && shortTrend < -0.05) score = -2;
-  else if (latest > 1.8 && trend > 0.2) score = 2;
-  else if (latest < 0.9 && trend < -0.2) score = -2;
-  else if (latest > 1.8) score = 1;
-  else if (latest < 0.9) score = -1;
+  // Extreme whale positions with momentum
+  if (whaleLongPct > 85 && shortTrend > 0.1) score = 3;
+  else if (whaleLongPct > 80 && shortTrend > 0.05) score = 2;
+  else if (whaleLongPct > 75) score = 1;
+  else if (whaleLongPct < 25 && shortTrend < -0.1) score = -3;
+  else if (whaleLongPct < 30 && shortTrend < -0.05) score = -2;
+  else if (whaleLongPct < 35) score = -1;
+  // Trend-based
+  if (trend > 0.3 && whaleLongPct > 70) score += 1;
+  else if (trend < -0.3 && whaleLongPct < 40) score -= 1;
   
   return {
     category: 'whale',
     label: '庄家动向',
     score: clampScore(score),
     weight: 0.75,
-    detail: `大户 ${(latest/(1+latest)*100).toFixed(0)}%多 | 短期${shortTrend > 0.05 ? '↑' : shortTrend < -0.05 ? '↓' : '→'} 24h${trend > 0.2 ? '↑' : trend < -0.2 ? '↓' : '→'}`,
+    detail: `大户 ${whaleLongPct.toFixed(0)}%多 | 短期${shortTrend > 0.05 ? '↑' : shortTrend < -0.05 ? '↓' : '→'} 24h${trend > 0.2 ? '↑' : trend < -0.2 ? '↓' : '→'}`,
   };
 }
 
@@ -484,11 +504,11 @@ export function factorNewsSentiment(newsScore: number, positiveCount: number, ne
 
 export function calculateAllFactors(params: {
   candles: Array<{ close: number; high: number; low: number; volume: number }>;
-  fundingRate: number;
+  fundingRate?: number;
   krwUsd: number;
   prevKrwUsd: number;
   naverPrice: number;
-  binancePrice: number;
+  binancePrice?: number;
   fxRate: number;
   rsi: number;
   macdHist: number;
@@ -505,17 +525,28 @@ export function calculateAllFactors(params: {
   newsNegative?: number;
   newsTopHeadline?: string;
   weights?: Record<string, number>;
+  hasRealVolume?: boolean;
 }): FactorResult {
+  const omittedFactors: FactorResult['omittedFactors'] = [];
   const factors: Factor[] = [
     factorMomentum(params.candles),
-    factorFundingRate(params.fundingRate),
-    factorVolume(params.candles),
     factorVolatility(params.candles),
     factorExchangeRate(params.krwUsd, params.prevKrwUsd),
-    factorPremium(params.naverPrice, params.binancePrice, params.fxRate),
     factorIndicatorMomentum(params.rsi, params.macdHist),
     factorSupportResistance(params.candles[params.candles.length - 1]?.close || 0, params.support, params.resistance),
   ];
+
+  if (params.fundingRate !== undefined) factors.push(factorFundingRate(params.fundingRate));
+  else omittedFactors.push({ category: 'funding', reason: 'stale' });
+
+  if (params.hasRealVolume) factors.push(factorVolume(params.candles));
+  else omittedFactors.push({ category: 'volume', reason: 'unsupported' });
+
+  if (params.binancePrice !== undefined) {
+    factors.push(factorPremium(params.naverPrice, params.binancePrice, params.fxRate));
+  } else {
+    omittedFactors.push({ category: 'premium', reason: 'stale' });
+  }
   
   if (params.longRatio) {
     factors.push(factorLongShortRatio(params.longRatio));
@@ -543,6 +574,7 @@ export function calculateAllFactors(params: {
   
   return {
     factors,
+    omittedFactors,
     composite: Math.round(composite * 10) / 10,
     direction,
     confidence: Math.round(confidence),

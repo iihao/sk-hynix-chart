@@ -97,6 +97,13 @@ export function makeChart(containerId, tf) {
     const L = getLabels();
     let html = '';
 
+    // Show time (UTC+8)
+    const time = new Date(param.time * 1000 + 8 * 3600000);
+    const hh = String(time.getUTCHours()).padStart(2, '0');
+    const mm = String(time.getUTCMinutes()).padStart(2, '0');
+    const dateStr = `${time.getUTCMonth()+1}/${time.getUTCDate()}`;
+    html += `<span style="color:#848e9c"><span class="lbl">时间</span><b>${dateStr} ${hh}:${mm}</b></span>`;
+
     if (d && state.currentSource !== 'naver') {
       const c = state.stealthMode
         ? BN.textBright
@@ -104,7 +111,7 @@ export function makeChart(containerId, tf) {
         ? BN.up
         : BN.down;
       const f = (v) => fmtPrice(v);
-      html =
+      html +=
         `<span><span class="lbl">${L.ohlc[0]}</span><b style="color:${c}">${f(d.open)}</b></span>` +
         `<span><span class="lbl">${L.ohlc[1]}</span><b style="color:${c}">${f(d.high)}</b></span>` +
         `<span><span class="lbl">${L.ohlc[2]}</span><b style="color:${c}">${f(d.low)}</b></span>` +
@@ -133,7 +140,7 @@ export function makeChart(containerId, tf) {
 }
 
 /* ── Support/Resistance Lines ── */
-export function updateSupportResistance(tf, support, resistance) {
+export function updateSupportResistance(tf, levelGroup) {
   const c = state.charts[tf];
   if (!c) return;
 
@@ -143,11 +150,18 @@ export function updateSupportResistance(tf, support, resistance) {
   }
   c.priceLines = [];
 
-  const isKRW = state.currency === 'KRW';
+  const support = levelGroup?.support || [];
+  const resistance = levelGroup?.resistance || [];
+  const toDisplayPrice = (price) => {
+    if (levelGroup?.currency === 'KRW') {
+      return state.currency === 'KRW' ? price : +(price / state.krwUsdRate).toFixed(2);
+    }
+    return state.currency === 'KRW' ? Math.round(price * state.krwUsdRate) : price;
+  };
 
   // Draw support lines (green)
   for (const s of (support || []).slice(0, 3)) {
-    const price = isKRW ? s.price : convertP(s.price);
+    const price = toDisplayPrice(s.price);
     const line = c.series.createPriceLine({
       price,
       color: 'rgba(14, 203, 129, 0.4)',
@@ -161,7 +175,7 @@ export function updateSupportResistance(tf, support, resistance) {
 
   // Draw resistance lines (red)
   for (const r of (resistance || []).slice(0, 3)) {
-    const price = isKRW ? r.price : convertP(r.price);
+    const price = toDisplayPrice(r.price);
     const line = c.series.createPriceLine({
       price,
       color: 'rgba(246, 70, 93, 0.4)',

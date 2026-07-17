@@ -48,4 +48,27 @@ describe('calculateAllFactors optional market inputs', () => {
       assert.equal(result.factors.filter((factor) => factor.category === category).length, 1);
     }
   });
+
+  it('omits factors when data is missing', () => {
+    const candles = Array.from({ length: 30 }, (_, index) => ({
+      close: 100 + index, high: 101 + index, low: 99 + index, volume: 0,
+    }));
+    const result = calculateAllFactors({
+      candles,
+      fundingRate: 0,
+      krwUsd: 1400,
+      prevKrwUsd: 1390,
+      naverPrice: 140000,
+      binancePrice: 0,
+      fxRate: 1400,
+      rsi: 50,
+      macdHist: 0,
+      support: [],
+      resistance: [],
+    });
+
+    // Premium should have score 0 when binancePrice is 0
+    const premiumFactor = result.factors.find(f => f.category === 'premium');
+    assert.equal(premiumFactor?.score, 0);
+  });
 });

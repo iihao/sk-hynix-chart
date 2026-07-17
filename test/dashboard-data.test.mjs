@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildPanelUrl,
   buildBacktestQuery,
   normalizeBacktest,
   normalizeFactors,
@@ -13,7 +14,21 @@ test('normalizes indicator latest values', () => {
     latest: { rsi: 45, macdHist: 1.2, volRatio: 1.1 },
   });
 
-  assert.deepEqual(result, { rsi: 45, macdHist: 1.2, volRatio: 1.1, signals: [], support: [], resistance: [] });
+  assert.deepEqual(result, {
+    rsi: 45, macdHist: 1.2, volRatio: 1.1, signals: [],
+    support: [], resistance: [], levels: null,
+  });
+});
+
+test('preserves currency-safe indicator level groups', () => {
+  const levels = {
+    spot: {currency: 'KRW', support: [{price: 1800000}], resistance: []},
+    futures: {currency: 'USDT', support: [{price: 1186}], resistance: []},
+  };
+  const result = normalizeIndicators({
+    latest: {rsi: 45, macdHist: 1.2, volRatio: 1.1}, signals: [], levels,
+  });
+  assert.deepEqual(result.levels, levels);
 });
 
 test('normalizes factor direction for display', () => {
@@ -47,12 +62,17 @@ test('uses production backtest query names', () => {
     stopLoss: 3,
     takeProfit: 5,
     optimize: false,
+    timeframe: 'm15',
   });
 
   assert.equal(
     query.toString(),
-    'entryThreshold=2&holdBars=12&stopLossPct=3&takeProfitPct=5&optimize=false',
+    'entryThreshold=2&holdBars=12&stopLossPct=3&takeProfitPct=5&tf=m15&optimize=false',
   );
+});
+
+test('builds panel URLs with the active timeframe', () => {
+  assert.equal(buildPanelUrl('/api/factors', 'h1'), '/api/factors?tf=h1');
 });
 
 test('does not multiply server win rate and maps trade prices', () => {

@@ -258,8 +258,13 @@ async function updateIndicators() {
     renderSignals(document, $('signalsContainer'), data.signals);
     
     // Update support/resistance lines on chart
-    if (data.support || data.resistance) {
-      updateSupportResistance(state.activeTF, data.support, data.resistance);
+    const levelGroup = state.currentSource === 'naver'
+      ? data.levels?.spot
+      : data.levels?.spot;
+    if (levelGroup || data.support || data.resistance) {
+      updateSupportResistance(state.activeTF, levelGroup || {
+        currency: 'KRW', support: data.support, resistance: data.resistance,
+      });
     }
     
     dashboardController.markPanel('indicators', 'ready');

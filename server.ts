@@ -71,7 +71,8 @@ import {
 import { parseBacktestParams } from './src/contracts/params';
 import { calculateContract, ContractValidationError } from './src/domain/contract';
 import { buildSpotCandles } from './src/domain/candles';
-import { canRecordSpotTick } from './src/domain/market-quality';
+import { canRecordSpotTick, classifyObservationAge } from './src/domain/market-quality';
+import { buildLevelGroups } from './src/domain/levels';
 // ══════════════════════════════════════════
 //  Project Root & Data Directory
 // ══════════════════════════════════════════
@@ -733,27 +734,11 @@ function getBinanceLocal(interval: string) {
   const latest = selectBinanceLatest.get() as any;
   const lastPrice = latest?.price || 0;
 
-  // Extend stale data to current time using last known price
-  if (ticks.length > 0 && lastPrice > 0) {
-    const lastTickTs = ticks[ticks.length - 1].ts;
-    const gap = now - lastTickTs;
-    if (gap > intervalSec * 2) {
-      const lastMark = latest?.mark_price || lastPrice;
-      const lastIdx = latest?.index_price || lastPrice;
-      const lastFr = latest?.funding_rate || 0;
-      const lastHigh = latest?.high_24h || lastPrice;
-      const lastLow = latest?.low_24h || lastPrice;
-      const lastVol = latest?.volume_24h || 0;
-      // Fill in one tick per interval until current time
-      for (let ts = lastTickTs + intervalSec; ts < now; ts += intervalSec) {
-        ticks.push({ ts, price: lastPrice, mark_price: lastMark, index_price: lastIdx, funding_rate: lastFr, high_24h: lastHigh, low_24h: lastLow, volume_24h: lastVol });
-      }
-      ticks.push({ ts: now, price: lastPrice, mark_price: lastMark, index_price: lastIdx, funding_rate: lastFr, high_24h: lastHigh, low_24h: lastLow, volume_24h: lastVol });
-    }
-  }
-
   const candles = buildBinanceCandlesFromTicks(ticks, intervalSec);
   const line = candles.map(k => ({ time: k.time, value: k.close }));
+  const freshness = latest?.ts
+    ? classifyObservationAge({ nowSec: now, exchangeTs: latest.ts, maxAgeSec: 120 })
+    : { eligible: false, ageSec: null, quality: 'stale' as const };
   return {
     line,
     candles,
@@ -768,6 +753,9 @@ function getBinanceLocal(interval: string) {
     } : null,
     local: true,
     tickCount: ticks.length,
+    lastExchangeTs: latest?.ts || null,
+    ageSec: freshness.ageSec,
+    quality: freshness.quality,
   };
 }
 
@@ -1333,15 +1321,10 @@ app.get('/api/indicators', (req, res) => {
     const binanceCandles = buildBinanceCandlesFromTicks(binanceTicks, intervalSec);
     const binanceSR = binanceCandles.length >= 20 ? findSupportResistance(binanceCandles) : { support: [], resistance: [] };
     
-    // Merge Naver and Binance support/resistance (prefer Binance)
-    const mergedSupport = [...binanceSR.support, ...result.support]
-      .filter((l, i, arr) => arr.findIndex(x => Math.abs(x.price - l.price) / l.price < 0.005) === i)
-      .sort((a, b) => b.price - a.price)
-      .slice(0, 5);
-    const mergedResistance = [...binanceSR.resistance, ...result.resistance]
-      .filter((l, i, arr) => arr.findIndex(x => Math.abs(x.price - l.price) / l.price < 0.005) === i)
-      .sort((a, b) => a.price - b.price)
-      .slice(0, 5);
+    const levels = buildLevelGroups({
+      spot: { support: result.support, resistance: result.resistance },
+      futures: { support: binanceSR.support, resistance: binanceSR.resistance },
+    });
     
     // Transform to match expected format
     const latest = result.latest;
@@ -1369,8 +1352,9 @@ app.get('/api/indicators', (req, res) => {
         macdState,
       },
       signals: result.signals,
-      support: mergedSupport,
-      resistance: mergedResistance,
+      support: levels.spot.support,
+      resistance: levels.spot.resistance,
+      levels,
       times: candles.map(c => c.time),
     });
   } catch (err) {
@@ -1926,15 +1910,21 @@ app.get('/api/factors', (req, res) => {
     
     // Get Binance data
     const binanceLatest = selectBinanceLatest.get();
-    const fundingRate = binanceLatest ? (binanceLatest as any).funding_rate || 0 : 0;
+    const binanceFreshness = binanceLatest
+      ? classifyObservationAge({ nowSec: now, exchangeTs: (binanceLatest as any).ts, maxAgeSec: 120 })
+      : { eligible: false, ageSec: null, quality: 'stale' as const };
     const sentimentRows = selectSentimentRange.all(now - rangeSec, now) as any[];
-    const latestSentiment = sentimentRows[sentimentRows.length - 1];
-    const previousSentiment = sentimentRows[sentimentRows.length - 2];
+    const latestSentimentCandidate = sentimentRows[sentimentRows.length - 1];
+    const sentimentFreshness = latestSentimentCandidate
+      ? classifyObservationAge({ nowSec: now, exchangeTs: latestSentimentCandidate.ts, maxAgeSec: 7200 })
+      : { eligible: false };
+    const latestSentiment = sentimentFreshness.eligible ? latestSentimentCandidate : undefined;
+    const previousSentiment = sentimentFreshness.eligible ? sentimentRows[sentimentRows.length - 2] : undefined;
     
     // Get Naver data
     const naverLatest = selectLatest.get();
     const naverPrice = naverLatest ? (naverLatest as any).price : 0;
-    const binancePrice = binanceLatest ? (binanceLatest as any).price : 0;
+    const binancePrice = binanceFreshness.eligible ? (binanceLatest as any).price : undefined;
     const latestClose = candles[candles.length - 1]?.close || 0;
     const previousClose = candles[candles.length - 2]?.close || 0;
     const latestOi = latestSentiment?.oi_value || latestSentiment?.open_interest;
@@ -1942,7 +1932,7 @@ app.get('/api/factors', (req, res) => {
     
     const result = calculateAllFactors({
       candles,
-      fundingRate,
+      fundingRate: binanceFreshness.eligible ? (binanceLatest as any).funding_rate || 0 : undefined,
       krwUsd: krwUsdRate,
       prevKrwUsd: krwUsdRate,
       naverPrice,
@@ -1967,6 +1957,7 @@ app.get('/api/factors', (req, res) => {
       newsNegative: (newsSentiment as any).negative || 0,
       newsTopHeadline: newsSentiment.headlines?.[0] || '',
       weights: activeWeights,
+      hasRealVolume: false,
     });
     
     // Calculate market context
@@ -2022,7 +2013,7 @@ app.get('/api/factors', (req, res) => {
       direction: result.direction,
       atrPct,
       volatilityScore: result.factors.find((f: any) => f.category === 'volatility')?.score || 0,
-      fundingRate,
+      fundingRate: binanceFreshness.eligible ? (binanceLatest as any).funding_rate || 0 : 0,
       eventStatus: eventWindow.status,
       basisZScore: basis.zScore,
       regimeMode: regime.mode,
