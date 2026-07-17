@@ -58,6 +58,7 @@ export function normalizeFactors(payload) {
       : null,
     risk: data.risk && typeof data.risk === 'object' ? data.risk : null,
     basis: data.basis && typeof data.basis === 'object' ? data.basis : null,
+    strategy: data.strategy && typeof data.strategy === 'object' ? data.strategy : null,
     tf: normalizeDashboardTf(data.tf),
     direction: {
       code: data.direction,

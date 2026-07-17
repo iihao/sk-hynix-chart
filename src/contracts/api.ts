@@ -252,6 +252,41 @@ export interface BinanceTimeframeData {
   fallback?: boolean;
 }
 
+// ══════════════════════════════════════════════
+//  Data Quality Response
+// ══════════════════════════════════════════════
+
+export interface CollectorQuality {
+  key: string;
+  state: 'starting' | 'healthy' | 'degraded' | 'open' | 'half-open' | 'stopped';
+  transport: 'direct' | 'proxy' | 'local' | 'none';
+  lastAttemptAt: number | null;
+  lastSuccessAt: number | null;
+  consecutiveFailures: number;
+  nextRetryAt: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+export interface SourceQuality {
+  key: string;
+  label?: string;
+  status: 'ok' | 'idle' | 'stale' | 'missing';
+  updatedAt?: string | null;
+  ageSec: number | null;
+  ageLabel?: string;
+  staleAfterSec?: number;
+  expectedActive: boolean;
+  detail: string;
+}
+
+export interface QualityResponse {
+  serverTime: number;
+  overall: 'healthy' | 'degraded' | 'unavailable';
+  collectors: CollectorQuality[];
+  sources: SourceQuality[];
+}
+
 export interface Candle {
   time: number;
   open: number;

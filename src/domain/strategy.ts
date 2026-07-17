@@ -260,9 +260,9 @@ export function generateStrategy(params: {
   } else if (direction === 'short') {
     stopLoss = `${(currentPrice + atrValue * 2).toFixed(0)} (2x ATR)`;
   } else {
-    stopLoss = 'N/A';
+    stopLoss = `${(currentPrice - atrValue * 2).toFixed(0)} / ${(currentPrice + atrValue * 2).toFixed(0)}`;
   }
-  
+
   // Take profit
   let takeProfit = '';
   if (direction === 'long') {
@@ -270,7 +270,7 @@ export function generateStrategy(params: {
   } else if (direction === 'short') {
     takeProfit = `${(currentPrice - atrValue * 3).toFixed(0)} (3x ATR)`;
   } else {
-    takeProfit = 'N/A';
+    takeProfit = `${(currentPrice + atrValue * 3).toFixed(0)} / ${(currentPrice - atrValue * 3).toFixed(0)}`;
   }
   
   // Risk level

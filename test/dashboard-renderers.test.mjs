@@ -43,3 +43,26 @@ test('renders source ages and connection state', () => {
   assert.equal(label.textContent, 'LIVE');
   assert.match(label.className, /connection-live/);
 });
+
+test('renders quality API source and collector state', () => {
+  const root = new Element();
+  renderSourceHealth(document, root, {
+    serverTime: 100000,
+    overall: 'degraded',
+    collectors: [
+      {
+        key: 'binance',
+        state: 'open',
+        transport: 'local',
+        nextRetryAt: 130000,
+      },
+    ],
+    sources: [
+      {key: 'naver', label: '现货', status: 'ok', ageSec: 8, expectedActive: true, detail: '₩250,000'},
+      {key: 'binance', label: '合约', status: 'stale', ageSec: 180, expectedActive: true, detail: '$180'},
+    ],
+  }, 100000);
+  assert.equal(root.children[0].children[0].textContent, '现货');
+  assert.equal(root.children[0].children[1].textContent, '₩250,000');
+  assert.equal(root.children[1].children[3].textContent, 'open / local 30s');
+});

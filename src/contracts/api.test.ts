@@ -4,6 +4,7 @@ import {
   parseBacktestResponse,
   parseFactorsResponse,
   parseIndicatorsResponse,
+  parseQualityResponse,
 } from './validators';
 
 describe('dashboard API contracts', () => {
@@ -149,5 +150,35 @@ describe('dashboard API contracts', () => {
 
   it('rejects malformed factor responses', () => {
     assert.throws(() => parseFactorsResponse({ factors: 'bad' }));
+  });
+
+  it('accepts data quality responses', () => {
+    const value = parseQualityResponse({
+      serverTime: 1000,
+      overall: 'degraded',
+      collectors: [
+        {
+          key: 'binance',
+          state: 'open',
+          transport: 'local',
+          lastAttemptAt: 900,
+          lastSuccessAt: 700,
+          consecutiveFailures: 3,
+          nextRetryAt: 30000,
+          errorCode: 'Error',
+          errorMessage: 'CIRCUIT_OPEN',
+        },
+      ],
+      sources: [
+        {
+          key: 'naver',
+          status: 'ok',
+          ageSec: 10,
+          expectedActive: true,
+          detail: '₩250,000',
+        },
+      ],
+    });
+    assert.equal(value.collectors[0].state, 'open');
   });
 });

@@ -73,6 +73,11 @@ import { calculateContract, ContractValidationError } from './src/domain/contrac
 import { buildSpotCandles } from './src/domain/candles';
 import { canRecordSpotTick, classifyObservationAge } from './src/domain/market-quality';
 import { buildLevelGroups } from './src/domain/levels';
+import { createCircuitBreaker } from './src/infrastructure/circuit-breaker';
+import { createCollectorRuntime } from './src/infrastructure/collector-runtime';
+import { createBinanceTransport } from './src/infrastructure/binance-transport';
+import { createScheduler } from './src/infrastructure/scheduler';
+import { createShutdownCoordinator } from './src/infrastructure/shutdown';
 // ══════════════════════════════════════════
 //  Project Root & Data Directory
 // ══════════════════════════════════════════
@@ -85,6 +90,7 @@ console.log(`[config] DATA_DIR: ${DATA_DIR}`);
 const app = express();
 const PORT: number = Number(process.env.PORT || 3456);
 const SYMBOL: string = '000660.KS';
+const scheduler = createScheduler();
 const NAVER_CODE: string = '000660';
 const KRW_USD_DEFAULT: number = 1544;
 let krwUsdRate: number = KRW_USD_DEFAULT;
@@ -226,7 +232,7 @@ insertFxTick = db.prepare('INSERT OR REPLACE INTO fx_ticks (ts, bid, ask, mid, s
 const selectFxRange = db.prepare('SELECT ts, bid, ask, mid, source FROM fx_ticks WHERE ts >= ? AND ts <= ? ORDER BY ts');
 const selectFxAtOrBefore = db.prepare('SELECT ts, bid, ask, mid, source FROM fx_ticks WHERE ts <= ? ORDER BY ts DESC LIMIT 1');
 fetchExchangeRate();
-setInterval(fetchExchangeRate, 3600000);
+scheduler.setInterval(fetchExchangeRate, 3600000);
 // Migration: add columns if they don't exist (for existing DBs)
 try { db.exec('ALTER TABLE ticks ADD COLUMN after_hours_price INTEGER'); } catch(e) {}
 try { db.exec('ALTER TABLE ticks ADD COLUMN after_hours_session TEXT'); } catch(e) {}
@@ -244,7 +250,7 @@ function walCheckpoint() {
 }
 // Checkpoint on startup, then every 5 minutes
 walCheckpoint();
-setInterval(walCheckpoint, 300000);
+scheduler.setInterval(walCheckpoint, 300000);
 
 // Prepared statements
 const insertTick = db.prepare('INSERT OR REPLACE INTO ticks (ts, price, prev_close, market_open, after_hours_price, after_hours_session) VALUES (?, ?, ?, ?, ?, ?)');
@@ -253,10 +259,10 @@ const selectLatest = db.prepare('SELECT ts, price, prev_close, market_open, afte
 const countTicks = db.prepare('SELECT COUNT(*) as cnt FROM ticks');
 const countAfterHours = db.prepare('SELECT COUNT(*) as cnt FROM ticks WHERE after_hours_price IS NOT NULL');
 
-function fetchJSON<T = any>(url: string): Promise<T> {
+function fetchJSON<T = any>(url: string, useEnvironmentProxy = true): Promise<T> {
   const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
 
-  if (proxyUrl && url.startsWith('https://')) {
+  if (useEnvironmentProxy && proxyUrl && url.startsWith('https://')) {
     return fetchJSONViaProxy<T>(url, proxyUrl);
   }
 
@@ -425,7 +431,7 @@ function getSourceHealthSnapshot() {
   return Object.entries(sourceRuntime).map(([key, meta]) => {
     const expectedActive = typeof meta.expectedActive === 'function' ? meta.expectedActive() : true;
     const ageSec = meta.updatedAt ? Math.max(0, Math.round((nowMs - meta.updatedAt) / 1000)) : null;
-    let status = 'missing';
+    let status = expectedActive ? 'missing' : 'idle';
     if (meta.updatedAt) {
       status = expectedActive ? (ageSec <= meta.staleAfterSec ? 'ok' : 'stale') : 'idle';
     }
@@ -509,7 +515,7 @@ async function naverBasic() {
 // the field disappears. We preserve the last known price until the next market open.
 let lastAfterHours = null;
 
-// Record a tick to SQLite (uses Binance price as proxy when market closed)
+// Record a spot tick only when Naver provides market or after-hours data.
 async function recordTick() {
   try {
     const basic = await naverBasic();
@@ -539,20 +545,6 @@ async function recordTick() {
     let ahPrice = freshAfterHours?.price || null;
     let ahSession = freshAfterHours?.session || null;
     let label = basic.marketOpen ? 'regular' : (ahPrice ? 'after-hours' : 'closed');
-    
-    // When market is closed and after-hours is also closed, use Binance price as proxy
-    if (!basic.marketOpen && (!ahPrice || freshAfterHours?.status === 'CLOSE')) {
-      const bnLatest = selectBinanceLatest.get() as any;
-      if (bnLatest?.price && krwUsdRate > 0) {
-        // Convert Binance USD price to KRW as proxy
-        const proxyPrice = Math.round(bnLatest.price * krwUsdRate);
-        if (proxyPrice > 0) {
-          ahPrice = proxyPrice;
-          ahSession = 'BINANCE_PROXY';
-          label = 'proxy';
-        }
-      }
-    }
     
     insertTick.run(ts, price, basic.prevClose, basic.marketOpen ? 1 : 0, ahPrice, ahSession);
     markSourceHealthy('naver', {
@@ -621,21 +613,23 @@ const BINANCE_ENDPOINTS = [
   'https://fapi1.binance.com',
   'https://fapi2.binance.com',
 ];
-const BINANCE_PROXY = process.env.BINANCE_PROXY || process.env.HTTPS_PROXY || process.env.https_proxy || 'http://127.0.0.1:7890';
+const BINANCE_PROXY = process.env.BINANCE_PROXY || '';
 let latestBinanceFundingTimeMs = 0;
 
-// Circuit breaker: skip Binance API when unreachable to avoid long hangs
-let binanceCircuitOpen = false;
-let binanceCircuitResetAt = 0;
-const BINANCE_CIRCUIT_COOLDOWN = 300000; // 5 minutes
+const binanceBreaker = createCircuitBreaker<any>({
+  failureThreshold: 3,
+  initialCooldownMs: 30000,
+  maxCooldownMs: 300000,
+});
+const binanceRuntime = createCollectorRuntime({key: 'binance'});
+const binanceTransport = createBinanceTransport<any>({
+  proxyUrl: BINANCE_PROXY || undefined,
+  directRequest: (url) => fetchJSON(url, false),
+  proxyRequest: (url, proxyUrl) => fetchJSONViaProxy(url, proxyUrl),
+});
 
 function isBinanceCircuitOpen(): boolean {
-  // Circuit breaker disabled - always try API
-  return false;
-}
-
-function tripBinanceCircuit(): void {
-  // Circuit breaker disabled - do nothing
+  return binanceBreaker.snapshot().state === 'open';
 }
 
 // Binance local storage table
@@ -695,7 +689,9 @@ async function backfillBinanceTicks() {
     let totalInserted = 0;
 
     // Paginate through klines (max 1500 per request)
-    while (currentStart < now * 1000) {
+    let pages = 0;
+    while (currentStart < now * 1000 && pages < 4) {
+      pages++;
       const data = await binanceFetch(`/fapi/v1/klines?symbol=${BINANCE_SYMBOL}&interval=1m&startTime=${currentStart}&limit=1500`);
 
       if (!Array.isArray(data) || data.length === 0) break;
@@ -795,24 +791,39 @@ function getBinanceLocal(interval: string) {
 }
 
 async function binanceFetch(path: string) {
-  if (isBinanceCircuitOpen()) {
-    throw new Error('Binance circuit breaker open');
-  }
-  let lastErr;
-  for (const base of BINANCE_ENDPOINTS) {
-    try {
-      const data = await fetchJSONViaProxy(`${base}${path}`, BINANCE_PROXY);
-      // Check for error response
-      if (data && typeof data === 'object' && data.code !== undefined && data.code !== 0) {
-        throw new Error(`Binance API error: ${data.msg || JSON.stringify(data)}`);
+  try {
+    return await binanceBreaker.execute(async () => {
+      let lastErr;
+      for (const base of BINANCE_ENDPOINTS) {
+        try {
+          const result = await binanceTransport.request(`${base}${path}`);
+          const data = result.data;
+          if (data && typeof data === 'object' && data.code !== undefined && data.code !== 0) {
+            throw new Error(`Binance API error: ${data.msg || JSON.stringify(data)}`);
+          }
+          binanceRuntime.update({
+            state: 'healthy', transport: result.transport, lastAttemptAt: Date.now(),
+            lastSuccessAt: Date.now(), consecutiveFailures: 0, nextRetryAt: null,
+            errorCode: null, errorMessage: null,
+          });
+          return data;
+        } catch (e) {
+          lastErr = e;
+        }
       }
-      return data;
-    } catch (e) {
-      lastErr = e;
-    }
+      throw lastErr || new Error('All Binance endpoints failed');
+    });
+  } catch (error) {
+    const breaker = binanceBreaker.snapshot();
+    binanceRuntime.update({
+      state: breaker.state === 'open' ? 'open' : 'degraded',
+      transport: 'local', lastAttemptAt: Date.now(),
+      consecutiveFailures: breaker.consecutiveFailures, nextRetryAt: breaker.nextRetryAt,
+      errorCode: error instanceof Error ? error.name : 'ERROR',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
-  tripBinanceCircuit();
-  throw lastErr || new Error('All Binance endpoints failed');
 }
 
 async function binanceKlines(interval: string, limit: number) {
@@ -1079,6 +1090,31 @@ app.get('/api/ticks', (req, res) => {
   });
 });
 
+app.get('/api/quality', (req, res) => {
+  const sources = getSourceHealthSnapshot();
+  const collector = binanceRuntime.snapshot();
+  const breaker = binanceBreaker.snapshot();
+  const binanceCollector = {
+    ...collector,
+    state: breaker.state === 'open' || breaker.state === 'half-open' ? breaker.state : collector.state,
+    nextRetryAt: breaker.nextRetryAt,
+  };
+  const spot = sources.find((source) => source.key === 'naver');
+  const overall =
+    !spot || (spot.status === 'missing' && spot.expectedActive)
+      ? 'unavailable'
+      : binanceCollector.state === 'healthy'
+        ? 'healthy'
+        : 'degraded';
+
+  res.json({
+    serverTime: Date.now(),
+    overall,
+    collectors: [binanceCollector],
+    sources,
+  });
+});
+
 // ── SSE ──
 interface SSEClient {
   res: Response;
@@ -1104,6 +1140,18 @@ app.get('/api/stream', (req, res) => {
   clients.push(client);
   req.on('close', () => { clients = clients.filter(c => c.res !== res); });
 });
+
+function closeSseClients() {
+  for (const client of clients) {
+    try {
+      client.res.write('event: close\ndata: {}\n\n');
+      client.res.end();
+    } catch (error) {
+      console.error('[sse] close error:', error.message);
+    }
+  }
+  clients = [];
+}
 
 async function broadcast() {
   if (clients.length === 0) return;
@@ -1834,7 +1882,7 @@ function factorNewsSentiment() {
 
 // Fetch news on startup and every 30 minutes
 fetchNewsSentiment();
-setInterval(() => { fetchNewsSentiment(); }, 1800000);
+scheduler.setInterval(() => { fetchNewsSentiment(); }, 1800000);
 
 function generateFactorSummary(factors: Factor[], composite: number) {
   const parts = [];
@@ -2054,10 +2102,27 @@ app.get('/api/factors', (req, res) => {
       basisZScore: basis.zScore,
       regimeMode: regime.mode,
     });
-    
+
+    // Generate strategy recommendation
+    const strategy = generateStrategy({
+      factors: result.factors,
+      composite: result.composite,
+      indicators: indicators.latest,
+      candles,
+      support: indicators.support,
+      resistance: indicators.resistance,
+      naverPrice,
+      binancePrice,
+      fundingRate: binanceFreshness.eligible ? (binanceLatest as any).funding_rate || 0 : 0,
+      eventStatus: eventWindow.status,
+      basisZScore: basis.zScore,
+      atrPct,
+    });
+
     res.json({
       tf,
       ...result,
+      strategy,
       marketContext: {
         koreaSession,
         fundingCountdown,
@@ -2342,15 +2407,15 @@ app.get('/api/binance/price', async (req, res) => {
 
 // ── Timers ──
 // Auto-optimize factor weights on startup (delayed) and every hour
-setTimeout(() => { autoOptimize(); }, 5000);
-setInterval(() => { autoOptimize(); }, 3600000);
+scheduler.setTimeout(() => { autoOptimize(); }, 5000);
+scheduler.setInterval(() => { autoOptimize(); }, 3600000);
 
 // Broadcast full data every 10s during market hours
 // Broadcast during market hours, pre-market, and after-hours (all active trading sessions)
-setInterval(() => { if (isMarketOpen() || isPreMarket() || isAfterHours()) broadcast(); }, 10000);
+scheduler.setInterval(() => { if (isMarketOpen() || isPreMarket() || isAfterHours()) broadcast(); }, 10000);
 
 // When market is closed, still push Binance data every 30s (Binance trades 24/7)
-setInterval(async () => {
+scheduler.setInterval(async () => {
   if (isMarketOpen() || isPreMarket() || isAfterHours()) return;
   try {
     const binance = {};
@@ -2397,23 +2462,23 @@ setInterval(async () => {
 }, 30000);
 
 // Record Naver tick every 60s (always, even outside market hours — captures state)
-setInterval(() => { recordTick(); }, 60000);
+scheduler.setInterval(() => { recordTick(); }, 60000);
 
 // Record Binance tick every 30s for local fallback
-setInterval(() => { recordBinanceTick(); }, 30000);
+scheduler.setInterval(() => { recordBinanceTick(); }, 30000);
 
 // Backfill missing Binance ticks every 5 minutes
-setInterval(() => { backfillBinanceTicks(); }, 300000);
+scheduler.setInterval(() => { backfillBinanceTicks(); }, 300000);
 
 // Fetch Binance sentiment data every 5 minutes
 fetchBinanceSentiment();
-setInterval(() => { fetchBinanceSentiment(); }, 300000);
+scheduler.setInterval(() => { fetchBinanceSentiment(); }, 300000);
 
 // ══════════════════════════════════════════
 //  New Domain-based API Endpoints
 // ══════════════════════════════════════════
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n  SK Hynix Chart Server (multi-source + SQLite)`);
   console.log(`  → http://localhost:${PORT}`);
   console.log(`  Sources: ${Object.keys(SOURCES).join(', ')}`);
@@ -2426,3 +2491,21 @@ app.listen(PORT, () => {
   backfillBinanceTicks();
   broadcast();
 });
+
+const shutdownCoordinator = createShutdownCoordinator({
+  stopTimers: () => scheduler.stopAll(),
+  stopCollectors: () => {
+    binanceRuntime.stop();
+    binanceBreaker.stop();
+  },
+  closeClients: closeSseClients,
+  checkpoint: walCheckpoint,
+  closeDatabase: () => db.close(),
+  closeServer: (done) => server.close(done),
+  exit: (code) => process.exit(code),
+  log: (message) => console.log(message),
+  error: (message, error) => console.error(message, error),
+});
+
+process.on('SIGINT', () => { void shutdownCoordinator.shutdown('SIGINT'); });
+process.on('SIGTERM', () => { void shutdownCoordinator.shutdown('SIGTERM'); });

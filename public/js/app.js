@@ -328,8 +328,59 @@ async function updateFactors() {
     $('basisArea').hidden = !data.basis;
     // Show strategy section when data is available
     const stratEl = $('stratSection');
-    if (stratEl && data.direction && data.direction.code !== 'neutral') {
+    const stratCard = $('stratCard');
+    if (stratEl && data.direction && data.strategy) {
       stratEl.style.display = 'block';
+      // Render strategy details
+      if (stratCard) {
+        const s = data.strategy;
+        const priceText = (value) => {
+          const numeric = Number(value);
+          return Number.isFinite(numeric) ? '$' + numeric.toFixed(2) : String(value || '--');
+        };
+        const rows = [
+          ['模式', s.regimeLabel || s.regime || '--'],
+          ['建议', s.direction || data.direction.label || '--'],
+          ['入场', priceText(s.entry)],
+          ['止损', priceText(s.stopLoss)],
+          ['止盈', priceText(s.takeProfit)],
+          ['风险', s.riskLevel || '--'],
+          ['杠杆', s.leverage || '--'],
+          ['风险收益比', s.riskReward || '--'],
+        ].filter(([, v]) => v && v !== '--');
+        stratCard.replaceChildren();
+        for (const [key, value] of rows) {
+          const row = document.createElement('div');
+          row.className = 'strat-row';
+          const keyEl = document.createElement('span');
+          keyEl.className = 'strat-kw';
+          keyEl.textContent = key;
+          const valueEl = document.createElement('span');
+          valueEl.className = 'strat-val';
+          valueEl.textContent = String(value);
+          row.append(keyEl, valueEl);
+          stratCard.appendChild(row);
+        }
+        // Add evidence
+        if (s.evidence) {
+          const evFor = s.evidence.for || [];
+          const evAgainst = s.evidence.against || [];
+          if (evFor.length || evAgainst.length) {
+            const evidence = document.createElement('div');
+            evidence.className = 'strat-evidence';
+            const evForEl = document.createElement('div');
+            evForEl.className = 'strat-ev-for';
+            evForEl.textContent = `看多 (${evFor.length}): ${evFor.map(e => e.label || e).join(', ') || '无'}`;
+            const evAgainstEl = document.createElement('div');
+            evAgainstEl.className = 'strat-ev-against';
+            evAgainstEl.textContent = `看空 (${evAgainst.length}): ${evAgainst.map(e => e.label || e).join(', ') || '无'}`;
+            evidence.append(evForEl, evAgainstEl);
+            stratCard.appendChild(evidence);
+          }
+        }
+      }
+    } else if (stratEl) {
+      stratEl.style.display = 'none';
     }
     dashboardController.markPanel('factors', 'ready');
   } catch (e) {
@@ -343,7 +394,7 @@ async function updateFactors() {
 async function updateHealth() {
   const signal = nextPanelSignal('health');
   try {
-    const res = await fetch('/api/ticks', { signal });
+    const res = await fetch('/api/quality', { signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     renderSourceHealth(document, $('factorCoverage'), await res.json());
   } catch (e) {

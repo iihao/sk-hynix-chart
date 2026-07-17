@@ -1,4 +1,4 @@
-import { BacktestResponse, FactorsResponse, IndicatorsResponse } from './api';
+import { BacktestResponse, FactorsResponse, IndicatorsResponse, QualityResponse } from './api';
 
 function expectObject(value: unknown, field: string): Record<string, any> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -74,4 +74,37 @@ export function parseBacktestResponse(value: unknown): BacktestResponse {
   expectNumber(metrics.avgWin, 'metrics.avgWin');
   expectNumber(metrics.avgLoss, 'metrics.avgLoss');
   return data as unknown as BacktestResponse;
+}
+
+export function parseQualityResponse(value: unknown): QualityResponse {
+  const data = expectObject(value, 'quality');
+  expectNumber(data.serverTime, 'serverTime');
+  if (!['healthy', 'degraded', 'unavailable'].includes(data.overall)) {
+    throw new Error('Invalid API response: overall');
+  }
+  const collectors = expectArray(data.collectors, 'collectors');
+  for (const [index, collectorValue] of collectors.entries()) {
+    const collector = expectObject(collectorValue, `collectors[${index}]`);
+    if (typeof collector.key !== 'string') throw new Error(`Invalid API response: collectors[${index}].key`);
+    if (!['starting', 'healthy', 'degraded', 'open', 'half-open', 'stopped'].includes(collector.state)) {
+      throw new Error(`Invalid API response: collectors[${index}].state`);
+    }
+    if (!['direct', 'proxy', 'local', 'none'].includes(collector.transport)) {
+      throw new Error(`Invalid API response: collectors[${index}].transport`);
+    }
+  }
+  const sources = expectArray(data.sources, 'sources');
+  for (const [index, sourceValue] of sources.entries()) {
+    const source = expectObject(sourceValue, `sources[${index}]`);
+    if (typeof source.key !== 'string') throw new Error(`Invalid API response: sources[${index}].key`);
+    if (!['ok', 'idle', 'stale', 'missing'].includes(source.status)) {
+      throw new Error(`Invalid API response: sources[${index}].status`);
+    }
+    if (source.ageSec !== null) expectNumber(source.ageSec, `sources[${index}].ageSec`);
+    if (typeof source.expectedActive !== 'boolean') {
+      throw new Error(`Invalid API response: sources[${index}].expectedActive`);
+    }
+    if (typeof source.detail !== 'string') throw new Error(`Invalid API response: sources[${index}].detail`);
+  }
+  return data as unknown as QualityResponse;
 }

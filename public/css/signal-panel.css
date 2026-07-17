@@ -235,17 +235,21 @@
 }
 .health-row {
   display: grid;
-  grid-template-columns: 1fr auto 40px;
+  grid-template-columns: 70px minmax(76px, 1fr) 42px 82px;
   gap: 8px;
   padding: 5px 8px;
   font: 10px 'JetBrains Mono', monospace;
   border-bottom: 1px solid var(--border);
 }
+.health-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .health-source { color: var(--text-bright); }
 .health-count { color: var(--text); }
 .health-age { text-align: right; }
+.health-state { color: var(--text); text-align: right; }
 .health-row.fresh .health-age { color: var(--green); }
 .health-row.stale .health-age { color: var(--yellow); }
+.health-row.missing .health-age,
+.health-row.missing .health-state { color: var(--red); }
 .panel-message { padding: 10px 8px; color: var(--text); font-size: 10px; text-align: center; }
 .panel-message.error { color: var(--red); }
 
@@ -355,6 +359,12 @@
 }
 .strategy-kw { color: var(--text); }
 .strategy-val { color: var(--text-bright); font-family: 'JetBrains Mono', monospace; }
+.strat-evidence {
+  margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border);
+  font-size: 9px; line-height: 1.4;
+}
+.strat-ev-for { color: var(--green); margin-bottom: 2px; }
+.strat-ev-against { color: var(--red); }
 .strategy-reasoning {
   margin-top: 8px;
   padding-top: 8px;

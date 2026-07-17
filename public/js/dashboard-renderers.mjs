@@ -161,18 +161,28 @@ export function renderMarketContext(document, element, context) {
 export function renderSourceHealth(document, element, health, now = Date.now()) {
   if (!element) return;
   clear(element);
-  const sources = [
-    ['Naver', health?.naver],
-    ['Binance', health?.binance],
+  const collectorByKey = new Map((health?.collectors || []).map((collector) => [collector.key, collector]));
+  const legacySources = health?.sources ? null : [
+    { key: 'naver', label: 'Naver', count: health?.naver?.count, latest: health?.naver?.latest },
+    { key: 'binance', label: 'Binance', count: health?.binance?.count, latest: health?.binance?.latest },
   ];
-  for (const [label, source] of sources) {
+  const sources = health?.sources || legacySources || [];
+
+  for (const source of sources) {
+    const collector = collectorByKey.get(source.key);
     const latestSeconds = Number(source?.latest?.ts) || 0;
-    const age = latestSeconds ? Math.max(0, Math.round(now / 1000 - latestSeconds)) : null;
+    const age = source.ageSec ?? (latestSeconds ? Math.max(0, Math.round(now / 1000 - latestSeconds)) : null);
+    const status = source.status || (age === null || age > 120 ? 'stale' : 'ok');
+    const detail = source.detail || `${Number(source?.count) || 0} ticks`;
+    const transport = collector?.transport && collector.transport !== 'none' ? ` / ${collector.transport}` : '';
+    const retrySec = collector?.nextRetryAt ? Math.max(0, Math.round((collector.nextRetryAt - now) / 1000)) : null;
+    const state = collector?.state ? `${collector.state}${transport}` : status;
     const row = document.createElement('div');
-    row.className = `health-row ${age === null || age > 120 ? 'stale' : 'fresh'}`;
-    appendText(document, row, 'span', 'health-source', label);
-    appendText(document, row, 'span', 'health-count', `${Number(source?.count) || 0} ticks`);
+    row.className = `health-row ${status === 'ok' ? 'fresh' : status}`;
+    appendText(document, row, 'span', 'health-source', source.label || source.key);
+    appendText(document, row, 'span', 'health-count', detail);
     appendText(document, row, 'span', 'health-age', age === null ? '无数据' : `${age}s`);
+    appendText(document, row, 'span', 'health-state', retrySec === null ? state : `${state} ${retrySec}s`);
     element.appendChild(row);
   }
 }
