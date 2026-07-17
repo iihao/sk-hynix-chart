@@ -163,6 +163,28 @@
   cursor: help;
   transition: all 0.2s;
 }
+.dir-help::after {
+  content: '综合评分基于多因子加权：正值偏多，负值偏空，绝对值越大方向越明确。置信度反映因子一致性。';
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: 200px;
+  padding: 8px 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-bright);
+  font-size: 10px;
+  line-height: 1.5;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.dir-help:hover::after {
+  opacity: 1;
+}
 .dir-help:hover {
   background: rgba(255,255,255,0.1);
   color: var(--text-bright);
@@ -270,6 +292,7 @@
   font-size: 10px;
   border-bottom: 1px solid rgba(255,255,255,0.03);
   transition: background 0.15s;
+  cursor: default;
 }
 .factor-row:hover {
   background: rgba(255,255,255,0.02);
@@ -335,6 +358,7 @@
   border-bottom: 1px solid rgba(255,255,255,0.03);
   transition: background 0.15s;
   min-width: 0;
+  cursor: default;
 }
 .health-row:hover {
   background: rgba(255,255,255,0.02);
@@ -381,6 +405,7 @@
   border: 1px solid rgba(255,255,255,0.04);
   border-left: 3px solid transparent;
   transition: all 0.2s;
+  cursor: default;
 }
 .sig-row:hover {
   background: rgba(255,255,255,0.04);
@@ -624,6 +649,7 @@
   border-bottom: 1px solid rgba(255,255,255,0.03);
   font-size: 11px;
   transition: background 0.15s;
+  cursor: default;
 }
 .ctx-row:hover {
   background: rgba(255,255,255,0.02);
