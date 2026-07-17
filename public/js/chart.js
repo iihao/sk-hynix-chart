@@ -129,7 +129,49 @@ export function makeChart(containerId, tf) {
   });
   ro.observe(el);
 
-  return { chart, series, volSeries, naverLine, bnSeries, initialFramed: false };
+  return { chart, series, volSeries, naverLine, bnSeries, initialFramed: false, priceLines: [] };
+}
+
+/* ── Support/Resistance Lines ── */
+export function updateSupportResistance(tf, support, resistance) {
+  const c = state.charts[tf];
+  if (!c) return;
+
+  // Remove old price lines
+  for (const line of c.priceLines || []) {
+    try { c.series.removePriceLine(line); } catch (e) {}
+  }
+  c.priceLines = [];
+
+  const isKRW = state.currency === 'KRW';
+
+  // Draw support lines (green)
+  for (const s of (support || []).slice(0, 3)) {
+    const price = isKRW ? s.price : convertP(s.price);
+    const line = c.series.createPriceLine({
+      price,
+      color: 'rgba(14, 203, 129, 0.4)',
+      lineWidth: 1,
+      lineStyle: 2, // Dashed
+      axisLabelVisible: true,
+      title: `S${s.strength || ''}`,
+    });
+    c.priceLines.push(line);
+  }
+
+  // Draw resistance lines (red)
+  for (const r of (resistance || []).slice(0, 3)) {
+    const price = isKRW ? r.price : convertP(r.price);
+    const line = c.series.createPriceLine({
+      price,
+      color: 'rgba(246, 70, 93, 0.4)',
+      lineWidth: 1,
+      lineStyle: 2, // Dashed
+      axisLabelVisible: true,
+      title: `R${r.strength || ''}`,
+    });
+    c.priceLines.push(line);
+  }
 }
 
 /* ── Data Pipeline ── */

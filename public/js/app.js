@@ -9,7 +9,7 @@ import {
   $,
   showError,
 } from './utils.js';
-import { makeChart, pushData, resetChartFraming, switchTF } from './chart.js';
+import { makeChart, pushData, resetChartFraming, switchTF, updateSupportResistance } from './chart.js';
 import {
   toggleCalculator,
   fpSetDirection,
@@ -256,6 +256,12 @@ async function updateIndicators() {
     }
 
     renderSignals(document, $('signalsContainer'), data.signals);
+    
+    // Update support/resistance lines on chart
+    if (data.support || data.resistance) {
+      updateSupportResistance(state.activeTF, data.support, data.resistance);
+    }
+    
     dashboardController.markPanel('indicators', 'ready');
   } catch (e) {
     if (e.name === 'AbortError') return;

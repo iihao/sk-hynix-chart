@@ -21,6 +21,8 @@ export function normalizeIndicators(payload) {
     macdHist: asNumber(latest.macdHist, 'latest.macdHist'),
     volRatio: asNumber(latest.volRatio, 'latest.volRatio'),
     signals: Array.isArray(data.signals) ? data.signals : [],
+    support: Array.isArray(data.support) ? data.support : [],
+    resistance: Array.isArray(data.resistance) ? data.resistance : [],
   };
 }
 

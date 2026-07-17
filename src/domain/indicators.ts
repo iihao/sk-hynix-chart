@@ -159,6 +159,10 @@ export function detectSignals(closes: number[], times: number[], indicators: Ind
   const price = closes[len - 1];
   const bbUpper = indicators.bollinger.upper[len - 1];
   const bbLower = indicators.bollinger.lower[len - 1];
+  const ma5 = indicators.ma5[len - 1];
+  const ma20 = indicators.ma20[len - 1];
+  const prevMa5 = indicators.ma5[len - 2];
+  const prevMa20 = indicators.ma20[len - 2];
   
   // RSI signals
   if (!isNaN(rsi)) {
@@ -184,6 +188,24 @@ export function detectSignals(closes: number[], times: number[], indicators: Ind
       signals.push({ type: 'buy', label: '触及布林下轨', strength: 2, time: times[len - 1] });
     } else if (price >= bbUpper) {
       signals.push({ type: 'sell', label: '触及布林上轨', strength: 2, time: times[len - 1] });
+    }
+  }
+  
+  // MA crossover (golden/death cross)
+  if (!isNaN(ma5) && !isNaN(ma20) && !isNaN(prevMa5) && !isNaN(prevMa20)) {
+    if (prevMa5 <= prevMa20 && ma5 > ma20) {
+      signals.push({ type: 'buy', label: 'MA金叉', strength: 3, time: times[len - 1] });
+    } else if (prevMa5 >= prevMa20 && ma5 < ma20) {
+      signals.push({ type: 'sell', label: 'MA死叉', strength: 3, time: times[len - 1] });
+    }
+  }
+  
+  // Trend signals (3 consecutive higher/lower closes)
+  if (len >= 4) {
+    if (closes[len-1] > closes[len-2] && closes[len-2] > closes[len-3] && closes[len-3] > closes[len-4]) {
+      signals.push({ type: 'buy', label: '连续上涨', strength: 2, time: times[len - 1] });
+    } else if (closes[len-1] < closes[len-2] && closes[len-2] < closes[len-3] && closes[len-3] < closes[len-4]) {
+      signals.push({ type: 'sell', label: '连续下跌', strength: 2, time: times[len - 1] });
     }
   }
   

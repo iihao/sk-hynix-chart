@@ -1278,8 +1278,16 @@ function detectSignals(closes: number[], times: number[], indicators: Indicators
     }
   }
 
-  // Volume spike (volume > 2x average of last 20)
-  // volume is tick count per candle, passed separately
+  // Price trend signals (3 consecutive higher/lower closes)
+  for (let i = Math.max(3, len - 50); i < len; i++) {
+    if (closes[i] > closes[i-1] && closes[i-1] > closes[i-2] && closes[i-2] > closes[i-3]) {
+      signals.push({ type: 'uptrend', label: '连续上涨', direction: 'long', time: times[i] });
+    }
+    if (closes[i] < closes[i-1] && closes[i-1] < closes[i-2] && closes[i-2] < closes[i-3]) {
+      signals.push({ type: 'downtrend', label: '连续下跌', direction: 'short', time: times[i] });
+    }
+  }
+
   return signals;
 }
 
@@ -1344,6 +1352,21 @@ app.get('/api/indicators', (req, res) => {
     const candles = buildCandlesFromTicks(ticks, intervalSec);
     const result = calculateAllIndicators(candles);
     
+    // Get Binance candles for support/resistance
+    const binanceTicks = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
+    const binanceCandles = buildBinanceCandlesFromTicks(binanceTicks, intervalSec);
+    const binanceSR = binanceCandles.length >= 20 ? findSupportResistance(binanceCandles) : { support: [], resistance: [] };
+    
+    // Merge Naver and Binance support/resistance (prefer Binance)
+    const mergedSupport = [...binanceSR.support, ...result.support]
+      .filter((l, i, arr) => arr.findIndex(x => Math.abs(x.price - l.price) / l.price < 0.005) === i)
+      .sort((a, b) => b.price - a.price)
+      .slice(0, 5);
+    const mergedResistance = [...binanceSR.resistance, ...result.resistance]
+      .filter((l, i, arr) => arr.findIndex(x => Math.abs(x.price - l.price) / l.price < 0.005) === i)
+      .sort((a, b) => a.price - b.price)
+      .slice(0, 5);
+    
     // Transform to match expected format
     const latest = result.latest;
     let macdState = 'neutral';
@@ -1370,8 +1393,8 @@ app.get('/api/indicators', (req, res) => {
         macdState,
       },
       signals: result.signals,
-      support: result.support,
-      resistance: result.resistance,
+      support: mergedSupport,
+      resistance: mergedResistance,
       times: candles.map(c => c.time),
     });
   } catch (err) {
