@@ -1091,20 +1091,21 @@ app.get('/api/ticks', (req, res) => {
 });
 
 app.get('/api/quality', (req, res) => {
-  const sources = getSourceHealthSnapshot();
-  const collector = binanceRuntime.snapshot();
-  const breaker = binanceBreaker.snapshot();
-  const binanceCollector = {
-    ...collector,
-    state: breaker.state === 'open' || breaker.state === 'half-open' ? breaker.state : collector.state,
-    nextRetryAt: breaker.nextRetryAt,
-  };
-  const spot = sources.find((source) => source.key === 'naver');
-  const overall =
-    !spot || (spot.status === 'missing' && spot.expectedActive)
-      ? 'unavailable'
-      : binanceCollector.state === 'healthy'
-        ? 'healthy'
+  try {
+    const sources = getSourceHealthSnapshot();
+    const collector = binanceRuntime.snapshot();
+    const breaker = binanceBreaker.snapshot();
+    const binanceCollector = {
+      ...collector,
+      state: breaker.state === 'open' || breaker.state === 'half-open' ? breaker.state : collector.state,
+      nextRetryAt: breaker.nextRetryAt,
+    };
+    const spot = sources.find((source) => source.key === 'naver');
+    const overall =
+      !spot || (spot.status === 'missing' && spot.expectedActive)
+        ? 'unavailable'
+        : binanceCollector.state === 'healthy'
+          ? 'healthy'
         : 'degraded';
 
   res.json({
@@ -1113,6 +1114,10 @@ app.get('/api/quality', (req, res) => {
     collectors: [binanceCollector],
     sources,
   });
+  } catch (err) {
+    console.error('[quality] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── SSE ──
