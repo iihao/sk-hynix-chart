@@ -20,6 +20,12 @@ import {
   calculatePnl,
   fetchBinancePrice,
 } from './calculator.js';
+import {
+  buildBacktestQuery,
+  normalizeBacktest,
+  normalizeFactors,
+  normalizeIndicators,
+} from './dashboard-data.mjs';
 
 /* ── Signal Panel Toggle ── */
 function toggleSignalPanel() {
@@ -183,7 +189,7 @@ async function fetchData() {
   try {
     const res = await fetch('/api/data?source=' + state.currentSource);
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
+    const data = normalizeIndicators(await res.json());
     if (data.error) throw new Error(data.error);
 
     state.krwUsdRate = data.krwUsd || KRW_USD_DEFAULT;
@@ -249,23 +255,22 @@ async function updateIndicators() {
     if (!res.ok) return;
     const data = await res.json();
     
-    // Update header indicators - use latest object
     const rsiEl = $('indRsi');
     const macdEl = $('indMacd');
     const volEl = $('indVol');
-    
-    if (rsiEl && data.latest) {
-      const rsi = data.latest.rsi;
+
+    if (rsiEl) {
+      const rsi = data.rsi;
       rsiEl.textContent = rsi.toFixed(1);
       rsiEl.className = 'ind-stat-val ' + (rsi > 70 ? 'bearish' : rsi < 30 ? 'bullish' : 'neutral');
     }
-    if (macdEl && data.latest) {
-      const macdVal = data.latest.macdHist;
+    if (macdEl) {
+      const macdVal = data.macdHist;
       macdEl.textContent = macdVal > 0 ? '+' + macdVal.toFixed(2) : macdVal.toFixed(2);
       macdEl.className = 'ind-stat-val ' + (macdVal > 0 ? 'bullish' : 'bearish');
     }
-    if (volEl && data.latest) {
-      const volRatio = data.latest.volRatio;
+    if (volEl) {
+      const volRatio = data.volRatio;
       volEl.textContent = volRatio.toFixed(2);
       volEl.className = 'ind-stat-val ' + (volRatio > 1.5 ? 'bullish' : volRatio < 0.5 ? 'bearish' : 'neutral');
     }
@@ -279,11 +284,11 @@ async function updateFactors() {
   try {
     const res = await fetch('/api/factors');
     if (!res.ok) return;
-    const data = await res.json();
+    const data = normalizeFactors(await res.json());
     
     // Update factor tags with safe rendering
     const tagsEl = $('factorTags');
-    if (tagsEl && data.factors) {
+    if (tagsEl) {
       tagsEl.innerHTML = '';
       for (const f of data.factors) {
         const span = document.createElement('span');
@@ -303,19 +308,20 @@ async function updateFactors() {
       }
     }
     
-    // Update direction - new API returns direction as string
     if (data.direction) {
       const dirText = $('dirText');
       const dirScore = $('dirScore');
       const dirConf = $('dirConf');
-      
+
       if (dirText) {
-        const dirLabel = data.direction === 'long' ? '做多' : data.direction === 'short' ? '做空' : '中性';
-        dirText.textContent = dirLabel;
-        dirText.className = 'dir-text ' + data.direction;
+        dirText.textContent = data.direction.label;
+        dirText.className = 'dir-text ' + data.direction.code;
       }
-      if (dirScore) dirScore.textContent = data.composite.toFixed(1);
-      if (dirConf) dirConf.textContent = data.confidence + '%';
+      if (dirScore) {
+        dirScore.textContent = data.direction.score.toFixed(1);
+        dirScore.className = 'dir-score ' + data.direction.code;
+      }
+      if (dirConf) dirConf.textContent = data.direction.confidence + '%';
     }
     
     // Update direction reason
@@ -366,16 +372,19 @@ async function runBacktest(optimize = false) {
   }
   
   try {
-    const params = new URLSearchParams({
-      threshold, holdBars: hold, stopLoss: sl, takeProfit: tp,
-      optimize: optimize ? 'true' : 'false'
+    const params = buildBacktestQuery({
+      threshold,
+      hold,
+      stopLoss: sl,
+      takeProfit: tp,
+      optimize,
     });
     const res = await fetch('/api/backtest?' + params);
     if (!res.ok) throw new Error('Backtest failed');
-    const data = await res.json();
-    
+    const data = normalizeBacktest(await res.json());
+
     if (data.error) {
-      alert(data.error);
+      showError(data.error);
       return;
     }
     
@@ -400,7 +409,7 @@ async function runBacktest(optimize = false) {
         return div;
       };
       
-      metricsDiv.appendChild(createMetric('胜率', (data.metrics.winRate * 100).toFixed(1) + '%'));
+      metricsDiv.appendChild(createMetric('胜率', data.metrics.winRate.toFixed(1) + '%'));
       metricsDiv.appendChild(createMetric('收益', data.metrics.totalReturn.toFixed(2) + '%'));
       metricsDiv.appendChild(createMetric('夏普', data.metrics.sharpe.toFixed(2)));
       metricsEl.appendChild(metricsDiv);
