@@ -645,6 +645,7 @@ const selectBinanceLatest = db.prepare('SELECT * FROM binance_ticks ORDER BY ts 
 const countBinanceTicks = db.prepare('SELECT COUNT(*) as cnt FROM binance_ticks');
 
 async function recordBinanceTick() {
+  if (isBinanceCircuitOpen()) return null;
   try {
     const meta = await binanceMeta();
     const ts = Math.floor(Date.now() / 1000);
@@ -700,20 +701,41 @@ function getBinanceLocal(interval: string) {
     default:    rangeSec = 7*86400;    intervalSec = 300;
   }
   const ticks = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
+  const latest = selectBinanceLatest.get() as any;
+  const lastPrice = latest?.price || 0;
+
+  // Extend stale data to current time using last known price
+  if (ticks.length > 0 && lastPrice > 0) {
+    const lastTickTs = ticks[ticks.length - 1].ts;
+    const gap = now - lastTickTs;
+    if (gap > intervalSec * 2) {
+      const lastMark = latest?.mark_price || lastPrice;
+      const lastIdx = latest?.index_price || lastPrice;
+      const lastFr = latest?.funding_rate || 0;
+      const lastHigh = latest?.high_24h || lastPrice;
+      const lastLow = latest?.low_24h || lastPrice;
+      const lastVol = latest?.volume_24h || 0;
+      // Fill in one tick per interval until current time
+      for (let ts = lastTickTs + intervalSec; ts < now; ts += intervalSec) {
+        ticks.push({ ts, price: lastPrice, mark_price: lastMark, index_price: lastIdx, funding_rate: lastFr, high_24h: lastHigh, low_24h: lastLow, volume_24h: lastVol });
+      }
+      ticks.push({ ts: now, price: lastPrice, mark_price: lastMark, index_price: lastIdx, funding_rate: lastFr, high_24h: lastHigh, low_24h: lastLow, volume_24h: lastVol });
+    }
+  }
+
   const candles = buildBinanceCandlesFromTicks(ticks, intervalSec);
-  const latest = selectBinanceLatest.get();
   const line = candles.map(k => ({ time: k.time, value: k.close }));
   return {
     line,
     candles,
     meta: latest ? {
-      price: (latest as any).price,
-      markPrice: (latest as any).mark_price,
-      indexPrice: (latest as any).index_price,
-      fundingRate: (latest as any).funding_rate,
-      high24h: (latest as any).high_24h,
-      low24h: (latest as any).low_24h,
-      volume24h: (latest as any).volume_24h,
+      price: lastPrice,
+      markPrice: latest.mark_price,
+      indexPrice: latest.index_price,
+      fundingRate: latest.funding_rate,
+      high24h: latest.high_24h,
+      low24h: latest.low_24h,
+      volume24h: latest.volume_24h,
     } : null,
     local: true,
     tickCount: ticks.length,
@@ -896,7 +918,9 @@ async function binanceLine(interval: string, sharedMeta: BinanceMeta | null) {
     const line = klines.map(k => ({ time: k.time, value: k.close }));
     return { line, meta: sharedMeta, candles: klines };
   } catch (err) {
-    console.error(`[binance] API failed for ${interval}: ${err.message}, using local fallback`);
+    if (!isBinanceCircuitOpen()) {
+      console.error(`[binance] API failed for ${interval}: ${err.message}, using local fallback`);
+    }
     const local = getBinanceLocal(interval);
     if (local.tickCount > 0) {
       return { ...local, fallback: true };
