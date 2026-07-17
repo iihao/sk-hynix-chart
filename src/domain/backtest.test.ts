@@ -66,4 +66,19 @@ describe('backtest observation alignment and weights', () => {
     });
     assert.equal(result.trades.length, 0);
   });
+
+  it('uses the aligned Binance price when FX is available', () => {
+    const neutral = backtestEngine(candles, [{ ts: 50, price: 100 }], [], {
+      ...params,
+      threshold: 0.65,
+      fxRate: 1,
+    });
+    const premium = backtestEngine(candles, [{ ts: 50, price: 103 }], [], {
+      ...params,
+      threshold: 0.65,
+      fxRate: 1,
+    });
+    assert.equal(neutral.trades.length, 0);
+    assert.equal(premium.trades.length, 1);
+  });
 });

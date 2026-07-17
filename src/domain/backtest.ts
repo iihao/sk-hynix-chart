@@ -8,6 +8,7 @@ import {
   factorLongShortRatio,
   factorMomentum,
   factorOpenInterest,
+  factorPremium,
   factorTakerVolume,
   factorVolatility,
   factorVolume,
@@ -21,6 +22,7 @@ export interface BacktestParams {
   takeProfitPct?: number;
   weights?: Record<string, number>;
   observationToleranceSec?: number;
+  fxRate?: number;
 }
 
 export interface BacktestBinanceTick {
@@ -143,6 +145,7 @@ export function backtestEngine(
     takeProfitPct = 5,
     weights = {},
     observationToleranceSec = 3600,
+    fxRate = 0,
   } = params;
   
   const initialEquity = 10000;
@@ -226,6 +229,9 @@ export function backtestEngine(
       const binance = binanceIndex >= 0 ? orderedBinance[binanceIndex] : undefined;
       if (binance && candle.time - binance.ts <= observationToleranceSec) {
         factors.push(factorFundingRate(binance.funding_rate || 0));
+        if (fxRate > 0 && binance.price > 0) {
+          factors.push(factorPremium(price, binance.price, fxRate));
+        }
       }
 
       const sentiment = sentimentIndex >= 0 ? orderedSentiment[sentimentIndex] : undefined;
