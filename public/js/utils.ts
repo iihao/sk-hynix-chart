@@ -1,5 +1,5 @@
 /* ── Constants ── */
-export const KRW_USD_DEFAULT = 1544;
+export const KRW_USD_DEFAULT: number = 1544;
 
 export const BN = {
   bg: '#0b0e11',
@@ -14,7 +14,19 @@ export const BN = {
   crosshair: '#474d57',
 };
 
-export const LABELS = {
+interface LabelSet {
+  ticker: string;
+  sub: string;
+  stat1: string;
+  stat2: string;
+  stat3: string;
+  tf: string[];
+  watermark: string;
+  ohlc: string[];
+  title: (p: string, pct: string, up: boolean) => string;
+}
+
+export const LABELS: Record<string, LabelSet> = {
   normal: {
     ticker: 'SK HYNIX',
     sub: '000660.KS',
@@ -24,7 +36,7 @@ export const LABELS = {
     tf: ['1分', '5分', '15分', '1时'],
     watermark: '000660',
     ohlc: ['O', 'H', 'L', 'C'],
-    title: (p, pct, up) => `${up ? '▲' : '▼'} ${p} (${pct}) SK Hynix`,
+    title: (p: string, pct: string, up: boolean) => `${up ? '▲' : '▼'} ${p} (${pct}) SK Hynix`,
   },
   stealth: {
     ticker: 'prod-cluster-east',
@@ -35,12 +47,24 @@ export const LABELS = {
     tf: ['1m', '5m', '15m', '1h'],
     watermark: 'PROD-EAST-01',
     ohlc: ['min', 'p50', 'p95', 'max'],
-    title: (p, pct, up) => `p99 ${p}ms (${pct}%) — prod-east`,
+    title: (p: string, pct: string, up: boolean) => `p99 ${p}ms (${pct}%) — prod-east`,
   },
 };
 
+interface AppState {
+  krwUsdRate: number;
+  currency: string;
+  activeTF: string;
+  rawData: Record<string, any>;
+  charts: Record<string, any>;
+  stealthMode: boolean;
+  currentBinancePrice: number;
+  currentSource: string;
+  lastServerTime: number;
+}
+
 /* ── State ── */
-export const state = {
+export const state: AppState = {
   krwUsdRate: KRW_USD_DEFAULT,
   currency: 'USD',
   activeTF: 'm5',
@@ -53,13 +77,13 @@ export const state = {
 };
 
 /* ── Helper Functions ── */
-export function convertP(v) {
+export function convertP(v: number): number {
   return state.currency === 'USD'
     ? +(v / state.krwUsdRate).toFixed(2)
     : Math.round(v);
 }
 
-export function fmtPrice(v) {
+export function fmtPrice(v: number): string {
   if (state.currency === 'USD') return '$' + v.toFixed(2);
   return '₩' + Math.round(v).toLocaleString();
 }
@@ -81,16 +105,16 @@ export function getThemeColors() {
     : BN;
 }
 
-export function getLabels() {
+export function getLabels(): LabelSet {
   return state.stealthMode ? LABELS.stealth : LABELS.normal;
 }
 
 /* ── DOM Helpers ── */
-export function $(id) {
+export function $(id: string): HTMLElement | null {
   return document.getElementById(id);
 }
 
-export function showError(msg) {
+export function showError(msg: string): void {
   const t = $('errorToast');
   if (t) {
     t.textContent = '数据获取失败: ' + msg;
