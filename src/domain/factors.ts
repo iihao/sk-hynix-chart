@@ -16,6 +16,28 @@ export interface FactorResult {
   confidence: number;
 }
 
+export function calculateWeightedComposite(
+  factors: Factor[],
+  overrides: Record<string, number> = {},
+): Omit<FactorResult, 'factors'> {
+  let weightedScore = 0;
+  let totalWeight = 0;
+  for (const factor of factors) {
+    const weight = overrides[factor.category] ?? factor.weight;
+    if (!Number.isFinite(weight) || weight <= 0) continue;
+    weightedScore += factor.score * weight;
+    totalWeight += weight;
+  }
+
+  const composite = totalWeight > 0 ? weightedScore / totalWeight : 0;
+  const direction = composite > 2 ? 'long' : composite < -2 ? 'short' : 'neutral';
+  return {
+    composite,
+    direction,
+    confidence: Math.min(100, Math.abs(composite) * 15),
+  };
+}
+
 function clampScore(v: number): number {
   return Math.max(-10, Math.min(10, v));
 }
@@ -352,6 +374,7 @@ export function calculateAllFactors(params: {
   sellVol?: number;
   oiChange?: number;
   priceChange?: number;
+  weights?: Record<string, number>;
 }): FactorResult {
   const factors: Factor[] = [
     factorMomentum(params.candles),
@@ -374,22 +397,7 @@ export function calculateAllFactors(params: {
     factors.push(factorOpenInterest(params.oiChange, params.priceChange));
   }
   
-  // Calculate composite score
-  let totalScore = 0;
-  let totalWeight = 0;
-  for (const f of factors) {
-    totalScore += f.score * f.weight;
-    totalWeight += f.weight;
-  }
-  const composite = totalWeight > 0 ? totalScore / totalWeight : 0;
-  
-  // Determine direction
-  let direction: 'long' | 'short' | 'neutral' = 'neutral';
-  if (composite > 2) direction = 'long';
-  else if (composite < -2) direction = 'short';
-  
-  // Calculate confidence
-  const confidence = Math.min(100, Math.abs(composite) * 15);
+  const { composite, direction, confidence } = calculateWeightedComposite(factors, params.weights);
   
   return {
     factors,

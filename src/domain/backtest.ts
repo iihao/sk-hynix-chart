@@ -1,6 +1,18 @@
 // src/domain/backtest.ts
 // Backtest engine module
 
+import {
+  calculateWeightedComposite,
+  Factor,
+  factorFundingRate,
+  factorLongShortRatio,
+  factorMomentum,
+  factorOpenInterest,
+  factorTakerVolume,
+  factorVolatility,
+  factorVolume,
+} from './factors';
+
 export interface BacktestParams {
   threshold?: number;
   holdBars?: number;
@@ -8,6 +20,23 @@ export interface BacktestParams {
   stopLossPct?: number;
   takeProfitPct?: number;
   weights?: Record<string, number>;
+  observationToleranceSec?: number;
+}
+
+export interface BacktestBinanceTick {
+  ts: number;
+  price: number;
+  funding_rate?: number;
+}
+
+export interface BacktestSentimentRow {
+  ts: number;
+  ls_ratio?: number;
+  taker_buy_vol?: number;
+  taker_sell_vol?: number;
+  open_interest?: number;
+  oi_value?: number;
+  [key: string]: unknown;
 }
 
 export interface BacktestTrade {
@@ -86,7 +115,7 @@ export function computeMetrics(trades: BacktestTrade[], equityCurve: number[], i
   // Profit factor
   const grossProfit = wins.reduce((sum, t) => sum + t.pnl, 0);
   const grossLoss = Math.abs(losses.reduce((sum, t) => sum + t.pnl, 0));
-  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0;
+  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 999 : 0;
   
   return {
     totalTrades: trades.length,
@@ -102,8 +131,8 @@ export function computeMetrics(trades: BacktestTrade[], equityCurve: number[], i
 
 export function backtestEngine(
   candles: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>,
-  binanceTicks: Array<{ ts: number; price: number }>,
-  sentimentData: Array<{ ts: number; [key: string]: any }>,
+  binanceTicks: BacktestBinanceTick[],
+  sentimentData: BacktestSentimentRow[],
   params: BacktestParams = {}
 ): BacktestResult {
   const {
@@ -113,6 +142,7 @@ export function backtestEngine(
     stopLossPct = 3,
     takeProfitPct = 5,
     weights = {},
+    observationToleranceSec = 3600,
   } = params;
   
   const initialEquity = 10000;
@@ -129,10 +159,20 @@ export function backtestEngine(
   
   const len = candles.length;
   const lookback = 50; // Need enough data for indicators
+  const orderedBinance = [...binanceTicks].sort((a, b) => a.ts - b.ts);
+  const orderedSentiment = [...sentimentData].sort((a, b) => a.ts - b.ts);
+  let binanceIndex = -1;
+  let sentimentIndex = -1;
   
   for (let i = lookback; i < len; i++) {
     const candle = candles[i];
     const price = candle.close;
+    while (binanceIndex + 1 < orderedBinance.length && orderedBinance[binanceIndex + 1].ts <= candle.time) {
+      binanceIndex++;
+    }
+    while (sentimentIndex + 1 < orderedSentiment.length && orderedSentiment[sentimentIndex + 1].ts <= candle.time) {
+      sentimentIndex++;
+    }
     
     // Check exit conditions if in position
     if (position) {
@@ -177,23 +217,48 @@ export function backtestEngine(
     
     // Check entry conditions if no position
     if (!position) {
-      // Simple momentum-based entry
-      const recentCandles = candles.slice(i - 10, i);
-      const avgClose = recentCandles.reduce((sum, c) => sum + c.close, 0) / recentCandles.length;
-      const momentum = (price - avgClose) / avgClose * 100;
-      
-      // Volume check
-      const avgVol = recentCandles.reduce((sum, c) => sum + c.volume, 0) / recentCandles.length;
-      const volRatio = candle.volume / avgVol;
-      
-      if (momentum > threshold && volRatio > 1.2) {
+      const factorWindow = candles.slice(Math.max(0, i - 20), i + 1);
+      const factors: Factor[] = [
+        factorMomentum(factorWindow),
+        factorVolume(factorWindow),
+        factorVolatility(factorWindow),
+      ];
+      const binance = binanceIndex >= 0 ? orderedBinance[binanceIndex] : undefined;
+      if (binance && candle.time - binance.ts <= observationToleranceSec) {
+        factors.push(factorFundingRate(binance.funding_rate || 0));
+      }
+
+      const sentiment = sentimentIndex >= 0 ? orderedSentiment[sentimentIndex] : undefined;
+      if (sentiment && candle.time - sentiment.ts <= observationToleranceSec) {
+        if (typeof sentiment.ls_ratio === 'number' && sentiment.ls_ratio > 0) {
+          factors.push(factorLongShortRatio(sentiment.ls_ratio));
+        }
+        if (
+          typeof sentiment.taker_buy_vol === 'number' && sentiment.taker_buy_vol > 0
+          && typeof sentiment.taker_sell_vol === 'number' && sentiment.taker_sell_vol > 0
+        ) {
+          factors.push(factorTakerVolume(sentiment.taker_buy_vol, sentiment.taker_sell_vol));
+        }
+        const previousSentiment = sentimentIndex > 0 ? orderedSentiment[sentimentIndex - 1] : undefined;
+        const currentOi = sentiment.oi_value ?? sentiment.open_interest;
+        const previousOi = previousSentiment?.oi_value ?? previousSentiment?.open_interest;
+        if (typeof currentOi === 'number' && typeof previousOi === 'number' && previousOi > 0 && i > 0) {
+          const oiChange = (currentOi - previousOi) / previousOi * 100;
+          const previousPrice = candles[i - 1].close;
+          const priceChange = previousPrice > 0 ? (price - previousPrice) / previousPrice * 100 : 0;
+          factors.push(factorOpenInterest(oiChange, priceChange));
+        }
+      }
+
+      const composite = calculateWeightedComposite(factors, weights).composite;
+      if (composite > threshold) {
         position = {
           direction: 'long',
           entry: price,
           entryTime: candle.time,
           entryIdx: i,
         };
-      } else if (momentum < -threshold && volRatio > 1.2) {
+      } else if (composite < -threshold) {
         position = {
           direction: 'short',
           entry: price,
@@ -225,6 +290,7 @@ export function backtestEngine(
       pnlPct: Math.round(pnlPct * 100) / 100,
       exitReason: 'timeout',
     });
+    equityCurve.push(equity);
   }
   
   const metrics = computeMetrics(trades, equityCurve, initialEquity);
@@ -239,8 +305,8 @@ export function backtestEngine(
 
 export function optimizeWeights(
   candles: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>,
-  binanceTicks: Array<{ ts: number; price: number }>,
-  sentimentData: Array<{ ts: number; [key: string]: any }>
+  binanceTicks: BacktestBinanceTick[],
+  sentimentData: BacktestSentimentRow[]
 ): BacktestResult {
   // Grid search for optimal parameters
   const thresholds = [1.5, 2, 2.5, 3];
