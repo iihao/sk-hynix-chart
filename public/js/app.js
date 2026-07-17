@@ -249,23 +249,25 @@ async function updateIndicators() {
     if (!res.ok) return;
     const data = await res.json();
     
-    // Update header indicators
+    // Update header indicators - use latest object
     const rsiEl = $('indRsi');
     const macdEl = $('indMacd');
     const volEl = $('indVol');
     
-    if (rsiEl && data.rsi != null) {
-      rsiEl.textContent = data.rsi.toFixed(1);
-      rsiEl.className = 'ind-stat-val ' + (data.rsi > 70 ? 'bearish' : data.rsi < 30 ? 'bullish' : 'neutral');
+    if (rsiEl && data.latest) {
+      const rsi = data.latest.rsi;
+      rsiEl.textContent = rsi.toFixed(1);
+      rsiEl.className = 'ind-stat-val ' + (rsi > 70 ? 'bearish' : rsi < 30 ? 'bullish' : 'neutral');
     }
-    if (macdEl && data.macd) {
-      const macdVal = data.macd.histogram;
+    if (macdEl && data.latest) {
+      const macdVal = data.latest.macdHist;
       macdEl.textContent = macdVal > 0 ? '+' + macdVal.toFixed(2) : macdVal.toFixed(2);
       macdEl.className = 'ind-stat-val ' + (macdVal > 0 ? 'bullish' : 'bearish');
     }
-    if (volEl && data.volumeRatio != null) {
-      volEl.textContent = data.volumeRatio.toFixed(2);
-      volEl.className = 'ind-stat-val ' + (data.volumeRatio > 1.5 ? 'bullish' : data.volumeRatio < 0.5 ? 'bearish' : 'neutral');
+    if (volEl && data.latest) {
+      const volRatio = data.latest.volRatio;
+      volEl.textContent = volRatio.toFixed(2);
+      volEl.className = 'ind-stat-val ' + (volRatio > 1.5 ? 'bullish' : volRatio < 0.5 ? 'bearish' : 'neutral');
     }
   } catch (e) {
     console.error('Failed to fetch indicators:', e);
@@ -279,29 +281,48 @@ async function updateFactors() {
     if (!res.ok) return;
     const data = await res.json();
     
-    // Update factor tags
+    // Update factor tags with safe rendering
     const tagsEl = $('factorTags');
     if (tagsEl && data.factors) {
-      tagsEl.innerHTML = data.factors.map(f => {
-        const cls = f.score > 0 ? 'bull' : f.score < 0 ? 'bear' : 'neut';
-        return `<span class="ftag ${cls}"><span class="ftag-score">${f.score > 0 ? '+' : ''}${f.score.toFixed(1)}</span><span class="ftag-name">${f.label}</span></span>`;
-      }).join('');
+      tagsEl.innerHTML = '';
+      for (const f of data.factors) {
+        const span = document.createElement('span');
+        span.className = 'ftag ' + (f.score > 0 ? 'bull' : f.score < 0 ? 'bear' : 'neut');
+        
+        const scoreSpan = document.createElement('span');
+        scoreSpan.className = 'ftag-score';
+        scoreSpan.textContent = (f.score > 0 ? '+' : '') + f.score.toFixed(1);
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'ftag-name';
+        nameSpan.textContent = f.label;
+        
+        span.appendChild(scoreSpan);
+        span.appendChild(nameSpan);
+        tagsEl.appendChild(span);
+      }
     }
     
-    // Update direction
+    // Update direction - new API returns direction as string
     if (data.direction) {
       const dirText = $('dirText');
       const dirScore = $('dirScore');
       const dirConf = $('dirConf');
-      const dirReason = $('dirReason');
       
       if (dirText) {
-        dirText.textContent = data.direction.direction;
-        dirText.className = 'dir-text ' + data.direction.direction.toLowerCase();
+        const dirLabel = data.direction === 'long' ? '做多' : data.direction === 'short' ? '做空' : '中性';
+        dirText.textContent = dirLabel;
+        dirText.className = 'dir-text ' + data.direction;
       }
-      if (dirScore) dirScore.textContent = data.direction.score.toFixed(1);
-      if (dirConf) dirConf.textContent = data.direction.confidence + '%';
-      if (dirReason) dirReason.textContent = data.direction.reason;
+      if (dirScore) dirScore.textContent = data.composite.toFixed(1);
+      if (dirConf) dirConf.textContent = data.confidence + '%';
+    }
+    
+    // Update direction reason
+    const dirReason = $('dirReason');
+    if (dirReason && data.factors && data.factors.length > 0) {
+      const topFactor = data.factors.reduce((a, b) => Math.abs(a.score) > Math.abs(b.score) ? a : b);
+      dirReason.textContent = topFactor.label + ': ' + topFactor.detail;
     }
   } catch (e) {
     console.error('Failed to fetch factors:', e);
@@ -315,12 +336,16 @@ async function updateNews() {
     if (!res.ok) return;
     const data = await res.json();
     
-    // Update market context area
+    // Update market context area with safe rendering
     const contextEl = $('marketContextArea');
     if (contextEl && data.headlines) {
-      contextEl.innerHTML = data.headlines.slice(0, 5).map(h => 
-        `<div style="font-size:10px;color:var(--text);padding:3px 0;border-bottom:1px solid var(--border)">${h}</div>`
-      ).join('');
+      contextEl.innerHTML = '';
+      for (const h of data.headlines.slice(0, 5)) {
+        const div = document.createElement('div');
+        div.style.cssText = 'font-size:10px;color:var(--text);padding:3px 0;border-bottom:1px solid var(--border)';
+        div.textContent = h; // Safe: uses textContent instead of innerHTML
+        contextEl.appendChild(div);
+      }
     }
   } catch (e) {
     console.error('Failed to fetch news:', e);
@@ -342,51 +367,84 @@ async function runBacktest(optimize = false) {
   
   try {
     const params = new URLSearchParams({
-      threshold, hold, stopLoss: sl, takeProfit: tp,
+      threshold, holdBars: hold, stopLoss: sl, takeProfit: tp,
       optimize: optimize ? 'true' : 'false'
     });
     const res = await fetch('/api/backtest?' + params);
     if (!res.ok) throw new Error('Backtest failed');
     const data = await res.json();
     
-    // Update metrics
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
+    
+    // Update metrics with safe DOM manipulation
     const metricsEl = $('btMetricsArea');
     if (metricsEl && data.metrics) {
-      metricsEl.innerHTML = `
-        <div class="bt-metrics">
-          <div class="bt-metric"><div class="bt-metric-label">胜率</div><div class="bt-metric-val">${(data.metrics.winRate * 100).toFixed(1)}%</div></div>
-          <div class="bt-metric"><div class="bt-metric-label">收益</div><div class="bt-metric-val">${data.metrics.totalReturn.toFixed(2)}%</div></div>
-          <div class="bt-metric"><div class="bt-metric-label">夏普</div><div class="bt-metric-val">${data.metrics.sharpe.toFixed(2)}</div></div>
-        </div>
-      `;
+      metricsEl.innerHTML = '';
+      const metricsDiv = document.createElement('div');
+      metricsDiv.className = 'bt-metrics';
+      
+      const createMetric = (label, value) => {
+        const div = document.createElement('div');
+        div.className = 'bt-metric';
+        const labelDiv = document.createElement('div');
+        labelDiv.className = 'bt-metric-label';
+        labelDiv.textContent = label;
+        const valDiv = document.createElement('div');
+        valDiv.className = 'bt-metric-val';
+        valDiv.textContent = value;
+        div.appendChild(labelDiv);
+        div.appendChild(valDiv);
+        return div;
+      };
+      
+      metricsDiv.appendChild(createMetric('胜率', (data.metrics.winRate * 100).toFixed(1) + '%'));
+      metricsDiv.appendChild(createMetric('收益', data.metrics.totalReturn.toFixed(2) + '%'));
+      metricsDiv.appendChild(createMetric('夏普', data.metrics.sharpe.toFixed(2)));
+      metricsEl.appendChild(metricsDiv);
     }
     
     // Update weights if optimized
     if (optimize && data.weights) {
       const weightsEl = $('btWeightsArea');
       if (weightsEl) {
-        weightsEl.innerHTML = `
-          <div style="margin-top:8px;font-size:10px;color:var(--text)">优化权重:</div>
-          ${Object.entries(data.weights).map(([k, v]) => 
-            `<div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0">
-              <span>${k}</span><span>${(v * 100).toFixed(1)}%</span>
-            </div>`
-          ).join('')}
-        `;
+        weightsEl.innerHTML = '';
+        const title = document.createElement('div');
+        title.style.cssText = 'margin-top:8px;font-size:10px;color:var(--text)';
+        title.textContent = '优化权重:';
+        weightsEl.appendChild(title);
+        
+        for (const [k, v] of Object.entries(data.weights)) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;justify-content:space-between;font-size:10px;padding:2px 0';
+          const keySpan = document.createElement('span');
+          keySpan.textContent = k;
+          const valSpan = document.createElement('span');
+          valSpan.textContent = (v * 100).toFixed(1) + '%';
+          row.appendChild(keySpan);
+          row.appendChild(valSpan);
+          weightsEl.appendChild(row);
+        }
       }
     }
     
-    // Update trades
+    // Update trades with safe DOM manipulation
     const tradesEl = $('btTradesArea');
     if (tradesEl && data.trades) {
-      tradesEl.innerHTML = `
-        <div style="margin-top:8px;font-size:10px;color:var(--text)">最近交易:</div>
-        ${data.trades.slice(0, 5).map(t => 
-          `<div style="font-size:10px;padding:2px 0;color:${t.pnl >= 0 ? 'var(--green)' : 'var(--red)'}">
-            ${t.direction} ${t.entry.toFixed(2)} → ${t.exit.toFixed(2)} (${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}%)
-          </div>`
-        ).join('')}
-      `;
+      tradesEl.innerHTML = '';
+      const title = document.createElement('div');
+      title.style.cssText = 'margin-top:8px;font-size:10px;color:var(--text)';
+      title.textContent = '最近交易:';
+      tradesEl.appendChild(title);
+      
+      for (const t of data.trades.slice(0, 5)) {
+        const div = document.createElement('div');
+        div.style.cssText = 'font-size:10px;padding:2px 0;color:' + (t.pnl >= 0 ? 'var(--green)' : 'var(--red)');
+        div.textContent = `${t.direction} ${t.entry.toFixed(2)} → ${t.exit.toFixed(2)} (${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}%)`;
+        tradesEl.appendChild(div);
+      }
     }
   } catch (e) {
     console.error('Backtest error:', e);
