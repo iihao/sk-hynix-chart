@@ -48,7 +48,7 @@ export const state = {
   charts: {},
   stealthMode: false,
   currentBinancePrice: 0,
-  currentSource: 'yahoo',
+  currentSource: 'naver',
   lastServerTime: 0,
 };
 
