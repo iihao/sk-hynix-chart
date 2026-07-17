@@ -53,8 +53,11 @@ const dashboardController = createDashboardController({
 
 /* ── Signal Panel Toggle ── */
 function toggleSignalPanel() {
-  $('signalPanel').classList.toggle('open');
-  document.body.classList.toggle('signal-panel-open', $('signalPanel').classList.contains('open'));
+  const panel = $('signalPanel');
+  panel.classList.toggle('collapsed');
+  // Keep 'open' class for backward compatibility
+  panel.classList.toggle('open', !panel.classList.contains('collapsed'));
+  document.body.classList.toggle('signal-panel-open', !panel.classList.contains('collapsed'));
 }
 
 function toggleCollapsible(id) {

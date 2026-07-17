@@ -12,6 +12,9 @@
   overflow: hidden;
   order: 1;
 }
+.signal-panel.open {
+  width: 280px;
+}
 .signal-panel.collapsed {
   width: 0;
   border-left: none;
