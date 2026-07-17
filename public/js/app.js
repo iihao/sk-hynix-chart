@@ -372,31 +372,92 @@ async function updateFactors() {
       const topFactor = data.factors.reduce((a, b) => Math.abs(a.score) > Math.abs(b.score) ? a : b);
       dirReason.textContent = topFactor.label + ': ' + topFactor.detail;
     }
-  } catch (e) {
-    console.error('Failed to fetch factors:', e);
-  }
-}
-
-/* ── News ── */
-async function updateNews() {
-  try {
-    const res = await fetch('/api/news');
-    if (!res.ok) return;
-    const data = await res.json();
     
-    // Update market context area with safe rendering
+    // Update market context
     const contextEl = $('marketContextArea');
-    if (contextEl && data.headlines) {
+    if (contextEl && data.marketContext) {
+      const mc = data.marketContext;
       contextEl.innerHTML = '';
-      for (const h of data.headlines.slice(0, 5)) {
-        const div = document.createElement('div');
-        div.style.cssText = 'font-size:10px;color:var(--text);padding:3px 0;border-bottom:1px solid var(--border)';
-        div.textContent = h; // Safe: uses textContent instead of innerHTML
-        contextEl.appendChild(div);
+      
+      // Helper to create a context row
+      const createContextRow = (label, value, valueClass = '') => {
+        const row = document.createElement('div');
+        row.className = 'ctx-row';
+        const labelEl = document.createElement('span');
+        labelEl.className = 'ctx-label';
+        labelEl.textContent = label;
+        const valEl = document.createElement('span');
+        valEl.className = 'ctx-val' + (valueClass ? ' ' + valueClass : '');
+        valEl.textContent = value;
+        row.appendChild(labelEl);
+        row.appendChild(valEl);
+        return row;
+      };
+      
+      // Korea session
+      if (mc.koreaSession) {
+        const sessionClass = mc.koreaSession.isRegular ? 'green' : mc.koreaSession.isPreMarket ? 'yellow' : '';
+        contextEl.appendChild(createContextRow('韩股时段', mc.koreaSession.label, sessionClass));
+      }
+      
+      // Regime
+      if (mc.regime) {
+        const regimeClass = mc.regime.mode === 'trend' ? 'green' : mc.regime.mode === 'event' ? 'red' : 'yellow';
+        contextEl.appendChild(createContextRow('市场模式', mc.regime.label, regimeClass));
+        
+        const reasonDiv = document.createElement('div');
+        reasonDiv.className = 'ctx-reason';
+        reasonDiv.textContent = mc.regime.reason;
+        contextEl.appendChild(reasonDiv);
+      }
+      
+      // Funding countdown
+      if (mc.fundingCountdown) {
+        const fundingClass = mc.fundingCountdown.isSoon ? 'yellow' : '';
+        contextEl.appendChild(createContextRow('资金费率', mc.fundingCountdown.label, fundingClass));
+      }
+      
+      // Event window
+      if (mc.eventWindow) {
+        const eventClass = mc.eventWindow.status === 'freeze' ? 'red' : mc.eventWindow.status === 'watch' ? 'yellow' : '';
+        contextEl.appendChild(createContextRow('事件窗口', mc.eventWindow.message, eventClass));
+      }
+      
+      // Basis
+      if (mc.basis && mc.basis.ready) {
+        const basisClass = mc.basis.state === 'extreme' ? 'red' : mc.basis.state === 'stretched' ? 'yellow' : '';
+        contextEl.appendChild(createContextRow('基差', `${mc.basis.currentBasisPct}% (${mc.basis.label})`, basisClass));
+      }
+      
+      // ATR
+      if (mc.atrPct !== undefined) {
+        const atrClass = mc.atrPct >= 3 ? 'red' : mc.atrPct >= 2 ? 'yellow' : '';
+        contextEl.appendChild(createContextRow('波动率', `${mc.atrPct}%`, atrClass));
+      }
+      
+      // Risk
+      if (mc.risk) {
+        const riskClass = mc.risk.blocked ? 'red' : mc.risk.action === 'reduce' ? 'yellow' : 'green';
+        contextEl.appendChild(createContextRow('仓位建议', `${mc.risk.positionPct}%`, riskClass));
+        contextEl.appendChild(createContextRow('杠杆上限', mc.risk.leverageCap, riskClass));
+        
+        // Show warnings/reasons
+        const messages = [...(mc.risk.reasons || []), ...(mc.risk.warnings || [])];
+        if (messages.length > 0) {
+          const warningsDiv = document.createElement('div');
+          warningsDiv.className = 'ctx-warnings';
+          for (const msg of messages.slice(0, 3)) {
+            const warnDiv = document.createElement('div');
+            warnDiv.className = 'ctx-warn';
+            warnDiv.textContent = '⚠ ' + msg;
+            warningsDiv.appendChild(warnDiv);
+          }
+          contextEl.appendChild(warningsDiv);
+        }
       }
     }
   } catch (e) {
-    console.error('Failed to fetch news:', e);
+    console.error('Failed to fetch factors:', e);
   }
 }
 
@@ -531,13 +592,11 @@ window.addEventListener('DOMContentLoaded', () => {
   setInterval(fetchData, 10000);
   fetchBinancePrice();
   
-  // Fetch indicators, factors, and news
+  // Fetch indicators and factors
   updateIndicators();
   updateFactors();
-  updateNews();
   setInterval(updateIndicators, 30000);
   setInterval(updateFactors, 60000);
-  setInterval(updateNews, 300000);
 });
 
 /* ── Expose to global scope for onclick handlers ── */
@@ -556,4 +615,3 @@ window.switchSource = switchSource;
 window.runBacktest = runBacktest;
 window.updateIndicators = updateIndicators;
 window.updateFactors = updateFactors;
-window.updateNews = updateNews;

@@ -1893,7 +1893,83 @@ app.get('/api/factors', (req, res) => {
       weights: activeWeights,
     });
     
-    res.json(result);
+    // Calculate market context
+    const nowMs = Date.now();
+    const koreaSession = getKoreaSessionState(nowMs);
+    const fundingCountdown = getFundingCountdown({
+      nowMs,
+      nextFundingTimeMs: (binanceLatest as any)?.next_funding_time ? (binanceLatest as any).next_funding_time * 1000 : undefined,
+    });
+    const eventWindow = getEventWindow(nowMs);
+    
+    // Calculate ATR for regime
+    const atrPct = candles.length >= 14
+      ? (() => {
+          const atrs = [];
+          for (let i = 1; i < candles.length; i++) {
+            const tr = Math.max(
+              candles[i].high - candles[i].low,
+              Math.abs(candles[i].high - candles[i - 1].close),
+              Math.abs(candles[i].low - candles[i - 1].close)
+            );
+            atrs.push(tr);
+          }
+          const atr14 = atrs.slice(-14).reduce((a, b) => a + b, 0) / 14;
+          return (atr14 / latestClose) * 100;
+        })()
+      : 0;
+    
+    // Calculate consensus
+    const positiveFactors = result.factors.filter((f: any) => f.score > 0).length;
+    const negativeFactors = result.factors.filter((f: any) => f.score < 0).length;
+    const consensus = result.factors.length > 0
+      ? Math.max(positiveFactors, negativeFactors) / result.factors.length
+      : 0;
+    
+    // Derive regime
+    const regime = deriveRegime({
+      composite: result.composite,
+      consensus,
+      eventStatus: eventWindow.status,
+      basisZScore: 0,
+      atrPct,
+    });
+    
+    // Build basis snapshot
+    const spotTicks = selectRange.all(now - 86400, now) as TickData[];
+    const binanceTicks = selectBinanceRange.all(now - 86400, now) as BinanceTickData[];
+    const basisSeries = alignBasisSeries({ spotTicks: spotTicks as any, binanceTicks: binanceTicks as any, fxRate: krwUsdRate });
+    const basis = computeBasisSnapshot(basisSeries);
+    
+    // Build risk overlay
+    const risk = buildRiskOverlay({
+      direction: result.direction,
+      atrPct,
+      volatilityScore: result.factors.find((f: any) => f.category === 'volatility')?.score || 0,
+      fundingRate,
+      eventStatus: eventWindow.status,
+      basisZScore: basis.zScore,
+      regimeMode: regime.mode,
+    });
+    
+    res.json({
+      ...result,
+      marketContext: {
+        koreaSession,
+        fundingCountdown,
+        eventWindow,
+        regime,
+        basis: {
+          ready: basis.ready,
+          currentBasisPct: basis.currentBasisPct,
+          zScore: basis.zScore,
+          state: basis.state,
+          label: basis.label,
+        },
+        risk,
+        atrPct: Math.round(atrPct * 100) / 100,
+      },
+    });
   } catch (err) {
     console.error('[factors] error:', err.message);
     res.status(500).json({ error: err.message });
