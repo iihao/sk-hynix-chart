@@ -1,4 +1,5 @@
 import { $ } from './utils.js';
+import { parsePaperResponse } from './paper-response.mjs';
 
 const paperState = {
   direction: 'long',
@@ -37,11 +38,7 @@ function setTone(id, value) {
 
 async function paperRequest(url, options = {}) {
   const res = await fetch(url, options);
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error?.message || data?.error || `HTTP ${res.status}`);
-  }
-  return data;
+  return parsePaperResponse(res, url);
 }
 
 function renderPositions(positions = []) {
