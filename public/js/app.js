@@ -3,12 +3,12 @@ import {
   BN,
   KRW_USD_DEFAULT,
   LABELS,
-  convertP,
   fmtPrice,
   getLabels,
   $,
   showError,
 } from './utils.js';
+import { convertQuotePrice, resolveQuoteCurrency } from './header-quote.mjs';
 import { makeChart, pushData, resetChartFraming, switchTF as switchChartTimeframe, updateSupportResistance, applyIndicators } from './chart.js';
 import {
   toggleCalculator,
@@ -87,14 +87,21 @@ function toggleStealth() {
 
 /* ── Update Header ── */
 function updateHeader(data) {
-  const meta = data.m1?.meta || data.m5?.meta || data.m15?.meta || {};
+  const frame = data.m1 || data.m5 || data.m15 || {};
+  const meta = frame.meta || {};
+  const quoteCurrency = resolveQuoteCurrency(frame, meta);
+  const displayPrice = (value) => convertQuotePrice(value, {
+    fromCurrency: quoteCurrency,
+    toCurrency: state.currency,
+    krwUsdRate: state.krwUsdRate,
+  });
   const price = meta.price || 0;
   const prev = meta.previousClose || 0;
   const pct = prev ? ((price - prev) / prev) * 100 : 0;
   const up = pct >= 0;
 
   const priceEl = $('hdrPrice');
-  priceEl.textContent = fmtPrice(convertP(price));
+  priceEl.textContent = fmtPrice(displayPrice(price));
   priceEl.className = 'price ' + (up ? 'up' : 'down');
 
   const chgEl = $('hdrChange');
@@ -103,24 +110,24 @@ function updateHeader(data) {
 
   const L = getLabels();
   document.title = L.title(
-    fmtPrice(convertP(price)),
+    fmtPrice(displayPrice(price)),
     (up ? '+' : '') + pct.toFixed(2),
     up
   );
 
-  $('statPrev').textContent = fmtPrice(convertP(prev));
+  $('statPrev').textContent = fmtPrice(displayPrice(prev));
   const closePrice = !meta.marketOpen
     ? price
     : data.m1?.candles?.length
     ? data.m1.candles[data.m1.candles.length - 1].close
     : price;
-  $('statClose').textContent = fmtPrice(convertP(closePrice));
+  $('statClose').textContent = fmtPrice(displayPrice(closePrice));
 
   if (data.m1?.candles?.length) {
     const allH = data.m1.candles.map((c) => c.high);
     const allL = data.m1.candles.map((c) => c.low);
-    $('statHigh').textContent = fmtPrice(convertP(Math.max(...allH)));
-    $('statLow').textContent = fmtPrice(convertP(Math.min(...allL)));
+    $('statHigh').textContent = fmtPrice(displayPrice(Math.max(...allH)));
+    $('statLow').textContent = fmtPrice(displayPrice(Math.min(...allL)));
   }
 
   // Binance stats
