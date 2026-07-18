@@ -224,35 +224,43 @@ export function updateSupportResistance(tf, levelGroup) {
 export function pushData(tf, data, bnData) {
   const c = state.charts[tf];
   if (!c) return;
-  const isNaver = state.currentSource === 'naver';
-  const isBinanceData = data?.dataSource === 'binance';
+  const isNaverSource = state.currentSource === 'naver';
+  const isBinanceData = data?.dataSource === 'binance' || data?.source === 'binance';
+  const isNaverData = data?.source === 'naver';
 
-  if (isNaver && data?.candles?.length && c.naverLine) {
+  // Convert price based on DATA source, not user-selected source
+  const convertPrice = (v) => {
+    if (isBinanceData) {
+      // Binance data is already USD
+      return state.currency === 'KRW' ? Math.round(v * state.krwUsdRate) : +(v).toFixed(2);
+    } else {
+      // Naver/Yahoo data is KRW
+      return state.currency === 'USD' ? +(v / state.krwUsdRate).toFixed(2) : Math.round(v);
+    }
+  };
+
+  if (isNaverSource && isNaverData && data?.candles?.length && c.naverLine) {
+    // Naver source selected AND data is from Naver: show as line
     c.series.applyOptions({ visible: false });
     c.volSeries.applyOptions({ visible: false });
     c.naverLine.applyOptions({ visible: true });
     const lineData = data.candles.map((i) => ({
       time: i.time,
-      value: convertP(i.close),
+      value: convertPrice(i.close),
     }));
     c.naverLine.setData(lineData);
   } else if (data?.candles?.length) {
+    // Binance source or non-Naver data: show as candlestick
     c.series.applyOptions({ visible: true });
     c.volSeries.applyOptions({ visible: true });
     if (c.naverLine) c.naverLine.applyOptions({ visible: false });
-    const candles = data.candles.map((i) => {
-      // Binance data is already USD, Naver data is KRW
-      const convert = isBinanceData
-        ? (v) => state.currency === 'KRW' ? Math.round(v * state.krwUsdRate) : +(v).toFixed(2)
-        : (v) => convertP(v);
-      return {
-        time: i.time,
-        open: convert(i.open),
-        high: convert(i.high),
-        low: convert(i.low),
-        close: convert(i.close),
-      };
-    });
+    const candles = data.candles.map((i) => ({
+      time: i.time,
+      open: convertPrice(i.open),
+      high: convertPrice(i.high),
+      low: convertPrice(i.low),
+      close: convertPrice(i.close),
+    }));
     c.series.setData(candles);
     c.volSeries.setData(
       data.candles.map((cc) => ({
