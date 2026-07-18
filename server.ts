@@ -794,12 +794,15 @@ function buildNaverTimeframeResult(input: {
   const rawCandles = buildCandlesFromTicks(ticks, input.intervalSec);
   const marketOpen = Boolean(input.basic?.marketOpen);
   const afterHours = input.basic?.afterHours || null;
+  const afterHoursActive = afterHours && afterHours.status !== 'CLOSE';
   const apiPrice = input.basic
-    ? (!input.basic.marketOpen && input.basic.afterHours ? input.basic.afterHours.price : input.basic.price)
+    ? (!input.basic.marketOpen && afterHoursActive ? afterHours!.price : input.basic.price)
     : null;
   const localSpotPrice = rawCandles[rawCandles.length - 1]?.close || observedTickPrice(latest) || apiPrice;
   const fallbackPrice = getBinanceKrwFallbackPrice();
-  const continuous = (!marketOpen && !afterHours)
+  // Use continuous candles when market is closed and no active after-hours session
+  const useContinuous = !marketOpen && !afterHoursActive;
+  const continuous = useContinuous
     ? buildContinuousSpotCandles({
         candles: rawCandles,
         nowSec: input.now,
@@ -826,7 +829,7 @@ function buildNaverTimeframeResult(input: {
       marketOpen,
       tickCount: ticks.length,
       afterHours,
-      synthetic: !marketOpen && !afterHours,
+      synthetic: useContinuous,
       syntheticSource: continuous.source,
     },
   };
