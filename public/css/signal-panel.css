@@ -568,18 +568,15 @@ body.signal-panel-open .signal-expand-strip { display: none; }
 
 /* ── Backtest ── */
 .bt-box {
-  background: rgba(255,255,255,0.02);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 8px;
-  padding: 10px 12px;
+  padding: 8px 0;
 }
-.bt-header { display: flex; gap: 8px; margin-bottom: 10px; }
+.bt-header { display: flex; gap: 8px; margin-bottom: 8px; }
 .bt-run-btn {
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.1);
   color: var(--text);
-  padding: 6px 14px;
-  border-radius: 6px;
+  padding: 5px 12px;
+  border-radius: 4px;
   font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
@@ -587,56 +584,48 @@ body.signal-panel-open .signal-expand-strip { display: none; }
 .bt-run-btn:hover {
   background: rgba(255,255,255,0.1);
   color: var(--text-bright);
-  transform: translateY(-1px);
 }
 .bt-params { 
   display: grid; 
   grid-template-columns: repeat(2, 1fr); 
-  gap: 8px; 
-  margin-bottom: 10px; 
+  gap: 6px; 
+  margin-bottom: 8px; 
 }
-.bt-param { display: flex; align-items: center; gap: 6px; }
+.bt-param { display: flex; align-items: center; gap: 4px; }
 .bt-param-label { 
   font-size: 9px; 
   color: var(--text); 
-  width: 30px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  width: 28px;
 }
 .bt-param-input {
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.08);
   color: var(--text-bright);
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 3px 6px;
+  border-radius: 3px;
   font-size: 10px;
-  width: 50px;
+  width: 48px;
   font-family: 'JetBrains Mono', monospace;
-  transition: all 0.2s;
 }
 .bt-param-input:focus {
   outline: none;
   border-color: var(--yellow);
-  background: rgba(240,185,11,0.05);
 }
 .bt-metrics { 
   display: grid; 
   grid-template-columns: repeat(3, 1fr); 
-  gap: 6px; 
-  margin-bottom: 8px; 
+  gap: 1px; 
+  margin-bottom: 6px; 
+  background: rgba(255,255,255,0.03);
 }
 .bt-metric {
-  background: rgba(255,255,255,0.03);
-  border-radius: 6px;
   padding: 6px 8px;
   text-align: center;
-  border: 1px solid rgba(255,255,255,0.04);
+  background: var(--surface);
 }
 .bt-metric-label { 
   font-size: 8px; 
   color: var(--text);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
   margin-bottom: 2px;
 }
 .bt-metric-val {
@@ -676,16 +665,15 @@ body.signal-panel-open .signal-expand-strip { display: none; }
 .bt-weights-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 4px;
+  gap: 1px;
+  background: rgba(255,255,255,0.03);
 }
 .bt-weight-chip {
   display: flex;
   justify-content: space-between;
   padding: 3px 6px;
-  background: rgba(255,255,255,0.03);
-  border-radius: 4px;
   font-size: 9px;
-  border: 1px solid rgba(255,255,255,0.04);
+  background: var(--surface);
 }
 .bt-weight-chip span:first-child { color: var(--text); }
 .bt-weight-chip span:last-child { color: var(--text-bright); font-family: 'JetBrains Mono', monospace; }
@@ -695,7 +683,7 @@ body.signal-panel-open .signal-expand-strip { display: none; }
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 6px;
+  padding: 4px 0;
   font-size: 9px;
   border-bottom: 1px solid rgba(255,255,255,0.03);
 }
@@ -738,10 +726,7 @@ body.signal-panel-open .signal-expand-strip { display: none; }
 
 /* ── Comparison ── */
 .bt-comparison {
-  background: rgba(255,255,255,0.02);
-  border-radius: 6px;
-  padding: 8px;
-  border: 1px solid rgba(255,255,255,0.04);
+  padding: 6px 0;
 }
 .bt-comp-row {
   display: flex;

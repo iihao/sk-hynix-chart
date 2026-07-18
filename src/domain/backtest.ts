@@ -405,6 +405,21 @@ function runOptimization(
   const factorAnalysis = analyzeFactorPerformance(currentResult.trades);
   const signalAnalysis = analyzeSignalPerformance(currentResult.trades);
   
+  // Map labels to Chinese
+  const labelMap: Record<string, string> = {
+    momentum: '价格动量', funding: '资金费率', volume: '成交量', volatility: '波动率',
+    fx: '汇率影响', premium: '合约溢价', indicator: '指标动量', structure: '结构位',
+    lsRatio: '多空比', takerVol: '主动买卖', openInterest: '持仓量',
+    lsTrend: '多空趋势', whale: '庄家动向', news: '新闻情绪',
+  };
+  for (const fa of factorAnalysis) {
+    fa.label = labelMap[fa.category] || fa.category;
+    fa.currentWeight = params.weights?.[fa.category] || 0.5;
+  }
+  for (const sa of signalAnalysis) {
+    sa.label = labelMap[sa.type] || sa.type;
+  }
+  
   // Generate optimized weights based on analysis
   const optimizedWeights: Record<string, number> = { ...params.weights };
   const improvements: string[] = [];
