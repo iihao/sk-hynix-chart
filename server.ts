@@ -2367,8 +2367,20 @@ app.get('/api/backtest', async (req, res) => {
     const { entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage } = parsedParams;
 
     const now = Math.floor(Date.now() / 1000);
-    const ticks = selectRange.all(now - rangeSec, now) as TickData[];
-    const candles = ticks.length > 1 ? buildCandlesFromTicks(ticks, intervalSec) : [];
+    
+    // Get Binance data as primary for backtest (USD prices)
+    const binanceTicks = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
+    const binanceCandles = binanceTicks.length >= 50 
+      ? buildBinanceCandlesFromTicks(binanceTicks, intervalSec) 
+      : [];
+    
+    // Fallback to Naver if Binance data insufficient
+    const naverTicks = selectRange.all(now - rangeSec, now) as TickData[];
+    const naverCandles = naverTicks.length > 1 ? buildCandlesFromTicks(naverTicks, intervalSec) : [];
+    
+    // Use Binance candles if available, otherwise Naver
+    const candles = binanceCandles.length >= 50 ? binanceCandles : naverCandles;
+    const dataSource = binanceCandles.length >= 50 ? 'binance' : 'naver';
 
     if (candles.length < 50) {
       return res.json({
@@ -2377,7 +2389,6 @@ app.get('/api/backtest', async (req, res) => {
       });
     }
 
-    const binanceWindow = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
     const sentimentData = selectSentimentRange.all(now - rangeSec, now) as BacktestSentimentRow[];
     const fxWindow = selectFxRange.all(now - rangeSec, now) as any[];
 
@@ -2385,8 +2396,8 @@ app.get('/api/backtest', async (req, res) => {
     const splitIdx = Math.floor(candles.length * 0.7);
     const trainCandles = candles.slice(0, splitIdx);
     const testCandles = candles.slice(splitIdx);
-    const trainBinance = binanceWindow.filter(t => (t as any).ts <= trainCandles[trainCandles.length - 1].time);
-    const testBinance = binanceWindow.filter(t => (t as any).ts > trainCandles[trainCandles.length - 1].time);
+    const trainBinance = binanceTicks.filter(t => t.ts <= trainCandles[trainCandles.length - 1].time);
+    const testBinance = binanceTicks.filter(t => t.ts > trainCandles[trainCandles.length - 1].time);
     const trainSentiment = sentimentData.filter(t => (t as any).ts <= trainCandles[trainCandles.length - 1].time);
     const testSentiment = sentimentData.filter(t => (t as any).ts > trainCandles[trainCandles.length - 1].time);
 
@@ -2394,7 +2405,7 @@ app.get('/api/backtest', async (req, res) => {
       await autoOptimize();
       // Run with optimization (closed-loop)
       const optimizedParams = toDomainBacktestParams({ ...activeParams, leverage, tf, fxTicks: fxWindow }, activeWeights);
-      const fullResult = backtestWithOptimization(candles, binanceWindow as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], optimizedParams);
+      const fullResult = backtestWithOptimization(candles, binanceTicks as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], optimizedParams);
       const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, optimizedParams);
       const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], optimizedParams);
       
@@ -2417,11 +2428,11 @@ app.get('/api/backtest', async (req, res) => {
     } else {
       const requestedParams = toDomainBacktestParams(
         { entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage, tf, fxTicks: fxWindow }, activeWeights);
-      const fullResult = backtestEngine(candles, binanceWindow as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], requestedParams);
+      const fullResult = backtestEngine(candles, binanceTicks as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], requestedParams);
       const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, requestedParams);
       const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], requestedParams);
       res.json({
-        params: { tf, entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage },
+        params: { tf, entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage, dataSource },
         ...fullResult,
         train: { metrics: trainResult.metrics, trades: trainResult.trades?.length },
         test: { metrics: testResult.metrics, trades: testResult.trades?.length },

@@ -479,7 +479,15 @@ async function updateHealth() {
 }
 
 /* ── Backtest ── */
+const WEIGHT_LABELS = {
+  momentum: '价格动量', funding: '资金费率', volume: '成交量', volatility: '波动率',
+  fx: '汇率影响', premium: '合约溢价', indicator: '指标动量', structure: '结构位',
+  lsRatio: '多空比', takerVol: '主动买卖', openInterest: '持仓量',
+  lsTrend: '多空趋势', whale: '庄家动向', news: '新闻情绪',
+};
+
 const fmtBtPrice = (v) => {
+  // Backtest prices from Binance are already in USD
   if (state.currency === 'KRW') return '₩' + Math.round(v * state.krwUsdRate).toLocaleString();
   return '$' + v.toFixed(2);
 };
@@ -575,7 +583,8 @@ async function runBacktest(optimize = false) {
         for (const [k, v] of Object.entries(data.weights)) {
           const chip = document.createElement('div');
           chip.className = 'bt-weight-chip';
-          chip.innerHTML = `<span>${k}</span><span>${(v * 100).toFixed(0)}%</span>`;
+          const label = WEIGHT_LABELS[k] || k;
+          chip.innerHTML = `<span>${label}</span><span>${(v * 100).toFixed(0)}%</span>`;
           weightsGrid.appendChild(chip);
         }
         weightsEl.appendChild(weightsGrid);
