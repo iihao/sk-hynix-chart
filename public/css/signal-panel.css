@@ -142,17 +142,14 @@ body.signal-panel-open .signal-expand-strip { display: none; }
 
 /* ── Direction Dashboard ── */
 .dir-dash {
-  background: linear-gradient(135deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 8px;
+  padding: 8px 0;
+  margin-bottom: 6px;
   position: relative;
 }
 .dir-help {
   position: absolute;
-  top: 8px;
-  right: 10px;
+  top: 0;
+  right: 0;
   width: 16px;
   height: 16px;
   background: rgba(255,255,255,0.05);
@@ -174,7 +171,7 @@ body.signal-panel-open .signal-expand-strip { display: none; }
   padding: 8px 10px;
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--text-bright);
   font-size: 10px;
   line-height: 1.5;
@@ -182,7 +179,6 @@ body.signal-panel-open .signal-expand-strip { display: none; }
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.2s;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 .dir-help:hover::after {
   opacity: 1;
@@ -236,9 +232,7 @@ body.signal-panel-open .signal-expand-strip { display: none; }
 .dir-reason {
   font-size: 10px;
   color: var(--text);
-  background: rgba(255,255,255,0.02);
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: 6px 0 6px 8px;
   line-height: 1.5;
   border-left: 2px solid rgba(255,255,255,0.1);
 }
