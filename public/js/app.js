@@ -186,19 +186,22 @@ function updateLatency(serverTime) {
     return;
   }
   const lag = Math.round((Date.now() - serverTime) / 1000);
-  let text, cls;
-  if (lag < 5) {
-    text = lag + 's';
-    cls = 'good';
-  } else if (lag < 15) {
-    text = lag + 's';
-    cls = 'ok';
-  } else {
-    text = lag + 's';
-    cls = 'bad';
-  }
-  badge.textContent = (state.stealthMode ? 'lag ' : '延迟 ') + text;
+  let cls;
+  if (lag < 5) cls = 'good';
+  else if (lag < 15) cls = 'ok';
+  else cls = 'bad';
+  badge.textContent = (state.stealthMode ? 'lag ' : '延迟 ') + lag + 's';
   badge.className = 'latency ' + cls;
+
+  // Binance latency from latest tick
+  const bnBadge = $('latencyBn');
+  if (bnBadge && state.rawData?.binance?.m5?.meta) {
+    const bnMeta = state.rawData.binance.m5.meta;
+    if (bnMeta.price) {
+      bnBadge.style.display = 'inline';
+      bnBadge.textContent = 'BN $' + bnMeta.price.toFixed(0);
+    }
+  }
 }
 
 /* ── Currency Switch ── */

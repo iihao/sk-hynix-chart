@@ -286,11 +286,11 @@ body.signal-panel-open .signal-expand-strip { display: none; }
 /* ── Factor Rows ── */
 .factor-row {
   display: grid;
-  grid-template-columns: minmax(70px, 1fr) 50px 44px;
+  grid-template-columns: 70px 1fr 40px;
   align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 6px 8px;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 8px;
   font-size: 10px;
   border-bottom: 1px solid rgba(255,255,255,0.03);
   transition: background 0.15s;
@@ -302,7 +302,10 @@ body.signal-panel-open .signal-expand-strip { display: none; }
 .factor-name { 
   color: var(--text-bright); 
   font-weight: 500;
-  font-size: 11px;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .factor-bar-container {
   position: relative;
@@ -348,6 +351,33 @@ body.signal-panel-open .signal-expand-strip { display: none; }
   padding: 10px 8px;
   margin-top: 4px;
   border-top: 1px solid rgba(255,255,255,0.04);
+}
+.factor-composite {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.factor-composite-label {
+  font-size: 10px;
+  color: var(--text);
+}
+.factor-composite-val {
+  font: 700 14px 'JetBrains Mono', monospace;
+}
+.factor-composite-val.bull { color: var(--green); }
+.factor-composite-val.bear { color: var(--red); }
+.factor-composite-val.neut { color: var(--yellow); }
+.factor-consensus {
+  font-size: 9px;
+  color: var(--text);
+  opacity: 0.7;
+}
+.factor-omitted {
+  font-size: 9px;
+  color: var(--text);
+  opacity: 0.5;
+  margin-top: 4px;
 }
 
 /* ── Health Row ── */

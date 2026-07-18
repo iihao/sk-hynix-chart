@@ -63,19 +63,42 @@ export function renderFactors(document, element, factors, omittedFactors = []) {
     renderPanelMessage(document, element, '暂无因子数据');
     return;
   }
+
+  // Calculate composite score for display
+  let weightedSum = 0;
+  let totalWeight = 0;
+  let bullishCount = 0;
+  let bearishCount = 0;
+
   for (const factor of factors) {
     const score = Number(factor.score) || 0;
     const weight = Number(factor.weight) || 0;
-    const row = document.createElement('div');
-    row.className = `factor-row ${score > 0 ? 'bull' : score < 0 ? 'bear' : 'neut'}`;
+    if (weight > 0) {
+      weightedSum += score * weight;
+      totalWeight += weight;
+    }
+    if (score > 1) bullishCount++;
+    else if (score < -1) bearishCount++;
+  }
+  const composite = totalWeight > 0 ? weightedSum / totalWeight : 0;
+
+  // Sort factors by absolute score (strongest first)
+  const sorted = [...factors].sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
+
+  for (const factor of sorted) {
+    const score = Number(factor.score) || 0;
+    if (Math.abs(score) < 0.1) continue; // Skip neutral factors
     
-    // Factor name with weight indicator
+    const row = document.createElement('div');
+    row.className = `factor-row ${score > 0 ? 'bull' : 'bear'}`;
+    
+    // Name
     const nameSpan = document.createElement('span');
     nameSpan.className = 'factor-name';
-    nameSpan.textContent = factor.label || '未命名因子';
+    nameSpan.textContent = factor.label || '未命名';
     row.appendChild(nameSpan);
     
-    // Score bar visualization
+    // Score bar (simplified - just shows direction)
     const barContainer = document.createElement('span');
     barContainer.className = 'factor-bar-container';
     const bar = document.createElement('span');
@@ -88,25 +111,42 @@ export function renderFactors(document, element, factors, omittedFactors = []) {
     barContainer.appendChild(bar);
     row.appendChild(barContainer);
     
-    // Score value
-    appendText(document, row, 'span', 'factor-score', `${score > 0 ? '+' : ''}${score.toFixed(1)}`);
-    
-    // Detail tooltip
-    const detailSpan = document.createElement('span');
-    detailSpan.className = 'factor-detail';
-    detailSpan.textContent = factor.detail || '';
-    detailSpan.title = `权重: ${weight.toFixed(2)}`;
-    row.appendChild(detailSpan);
+    // Score value with direction arrow
+    const arrow = score > 0 ? '↑' : '↓';
+    appendText(document, row, 'span', 'factor-score', `${arrow}${Math.abs(score).toFixed(1)}`);
     
     element.appendChild(row);
   }
-  
-  // Add composite summary
+
+  // Add calculation summary
   const summary = document.createElement('div');
   summary.className = 'factor-summary';
-  summary.textContent = omittedFactors.length > 0
-    ? `已省略 ${omittedFactors.map((item) => item.category).join(', ')}`
-    : '数据覆盖完整';
+  
+  const compositeDiv = document.createElement('div');
+  compositeDiv.className = 'factor-composite';
+  const compositeLabel = document.createElement('span');
+  compositeLabel.className = 'factor-composite-label';
+  compositeLabel.textContent = '综合评分';
+  const compositeVal = document.createElement('span');
+  compositeVal.className = `factor-composite-val ${composite > 0 ? 'bull' : composite < 0 ? 'bear' : 'neut'}`;
+  compositeVal.textContent = `${composite > 0 ? '+' : ''}${composite.toFixed(2)}`;
+  compositeDiv.append(compositeLabel, compositeVal);
+  summary.appendChild(compositeDiv);
+
+  // Add consensus info
+  const consensusDiv = document.createElement('div');
+  consensusDiv.className = 'factor-consensus';
+  consensusDiv.textContent = `看多${bullishCount} 看空${bearishCount} 共${factors.length}因子`;
+  summary.appendChild(consensusDiv);
+
+  // Add omitted factors info if any
+  if (omittedFactors.length > 0) {
+    const omittedDiv = document.createElement('div');
+    omittedDiv.className = 'factor-omitted';
+    omittedDiv.textContent = `省略: ${omittedFactors.map(f => f.category).join(', ')}`;
+    summary.appendChild(omittedDiv);
+  }
+
   element.appendChild(summary);
 }
 
