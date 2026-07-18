@@ -1,5 +1,5 @@
 // src/domain/backtest.ts
-// Backtest engine module
+// Backtest engine module with signal detection and closed-loop optimization
 
 import {
   calculateWeightedComposite,
@@ -12,8 +12,13 @@ import {
   factorTakerVolume,
   factorVolatility,
   factorVolume,
+  factorLongShortTrend,
+  factorWhaleActivity,
+  factorIndicatorMomentum,
+  factorSupportResistance,
 } from './factors';
 import { findFxAtOrBefore, FxTick } from './fx';
+import { calculateAllIndicators, findSupportResistance, SupportResistance } from './indicators';
 
 export interface BacktestParams {
   threshold?: number;
@@ -36,6 +41,11 @@ export interface BacktestBinanceTick {
   price: number;
   funding_rate?: number;
   isFundingEvent?: boolean;
+  mark_price?: number;
+  index_price?: number;
+  high_24h?: number;
+  low_24h?: number;
+  volume_24h?: number;
 }
 
 export interface BacktestSentimentRow {
@@ -45,6 +55,7 @@ export interface BacktestSentimentRow {
   taker_sell_vol?: number;
   open_interest?: number;
   oi_value?: number;
+  top_ls_ratio?: number;
   [key: string]: unknown;
 }
 
@@ -57,6 +68,9 @@ export interface BacktestTrade {
   pnl: number;
   pnlPct: number;
   exitReason: 'signal' | 'stopLoss' | 'takeProfit' | 'timeout';
+  entryFactors: Factor[];
+  exitFactors: Factor[];
+  composite: number;
 }
 
 export interface BacktestMetrics {
@@ -68,6 +82,36 @@ export interface BacktestMetrics {
   maxDrawdown: number;
   sharpe: number;
   profitFactor: number;
+  avgHoldBars: number;
+  expectancy: number;
+}
+
+export interface FactorAnalysis {
+  category: string;
+  label: string;
+  avgScoreOnWin: number;
+  avgScoreOnLoss: number;
+  correlation: number;
+  suggestedWeight: number;
+  currentWeight: number;
+}
+
+export interface SignalAnalysis {
+  type: string;
+  label: string;
+  totalTriggers: number;
+  winRate: number;
+  avgReturn: number;
+  suggestedAction: 'keep' | 'increase_threshold' | 'decrease_threshold' | 'disable';
+}
+
+export interface OptimizationResult {
+  currentMetrics: BacktestMetrics;
+  optimizedWeights: Record<string, number>;
+  optimizedMetrics: BacktestMetrics;
+  factorAnalysis: FactorAnalysis[];
+  signalAnalysis: SignalAnalysis[];
+  improvements: string[];
 }
 
 export interface BacktestResult {
@@ -76,6 +120,9 @@ export interface BacktestResult {
   equityCurve: number[];
   weights: Record<string, number>;
   costs: { fees: number; slippage: number; funding: number };
+  factorAnalysis?: FactorAnalysis[];
+  signalAnalysis?: SignalAnalysis[];
+  optimization?: OptimizationResult;
 }
 
 export function annualizationBars(timeframe: string = 'm5'): number {
@@ -88,14 +135,9 @@ export function computeMetrics(
 ): BacktestMetrics {
   if (trades.length === 0) {
     return {
-      totalTrades: 0,
-      winRate: 0,
-      avgWin: 0,
-      avgLoss: 0,
-      totalReturn: 0,
-      maxDrawdown: 0,
-      sharpe: 0,
-      profitFactor: 0,
+      totalTrades: 0, winRate: 0, avgWin: 0, avgLoss: 0,
+      totalReturn: 0, maxDrawdown: 0, sharpe: 0, profitFactor: 0,
+      avgHoldBars: 0, expectancy: 0,
     };
   }
   
@@ -118,7 +160,7 @@ export function computeMetrics(
     if (drawdown > maxDrawdown) maxDrawdown = drawdown;
   }
   
-  // Sharpe ratio (simplified)
+  // Sharpe ratio
   const returns = [];
   for (let i = 1; i < equityCurve.length; i++) {
     returns.push((equityCurve[i] - equityCurve[i - 1]) / equityCurve[i - 1]);
@@ -134,6 +176,15 @@ export function computeMetrics(
   const grossLoss = Math.abs(losses.reduce((sum, t) => sum + t.pnl, 0));
   const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 999 : 0;
   
+  // Expectancy (average P&L per trade)
+  const expectancy = trades.reduce((sum, t) => sum + t.pnl, 0) / trades.length;
+  
+  // Average hold bars
+  const avgHoldBars = trades.reduce((sum, t) => {
+    const holdTime = (t.exitTime - t.entryTime) / 300; // Assuming 5m bars
+    return sum + holdTime;
+  }, 0) / trades.length;
+  
   return {
     totalTrades: trades.length,
     winRate: Math.round(winRate * 1000) / 10,
@@ -143,6 +194,263 @@ export function computeMetrics(
     maxDrawdown: Math.round(maxDrawdown * 100) / 100,
     sharpe: Math.round(sharpe * 100) / 100,
     profitFactor: Math.round(profitFactor * 100) / 100,
+    avgHoldBars: Math.round(avgHoldBars * 10) / 10,
+    expectancy: Math.round(expectancy * 100) / 100,
+  };
+}
+
+// Calculate all factors for a given candle position
+function calculateFactorsAtPosition(
+  candles: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>,
+  index: number,
+  binanceTick: BacktestBinanceTick | undefined,
+  sentimentRow: BacktestSentimentRow | undefined,
+  params: BacktestParams,
+  srLevels: SupportResistance[],
+): Factor[] {
+  const factors: Factor[] = [];
+  const window = candles.slice(Math.max(0, index - 20), index + 1);
+  const hasRealVolume = params.hasRealVolume || false;
+  
+  // Core factors
+  factors.push(factorMomentum(window));
+  factors.push(factorVolatility(window));
+  if (hasRealVolume) factors.push(factorVolume(window));
+  
+  // Binance-based factors
+  if (binanceTick) {
+    const candle = candles[index];
+    const obsAge = params.observationToleranceSec || 3600;
+    if (candle.time - binanceTick.ts <= obsAge) {
+      factors.push(factorFundingRate(binanceTick.funding_rate || 0));
+      const alignedFx = params.fxRate || 0;
+      if (alignedFx > 0 && binanceTick.price > 0) {
+        factors.push(factorPremium(candle.close, binanceTick.price, alignedFx));
+      }
+    }
+  }
+  
+  // Sentiment-based factors
+  if (sentimentRow) {
+    const obsAge = params.observationToleranceSec || 3600;
+    if (candles[index].time - sentimentRow.ts <= obsAge) {
+      if (typeof sentimentRow.ls_ratio === 'number' && sentimentRow.ls_ratio > 0) {
+        factors.push(factorLongShortRatio(sentimentRow.ls_ratio));
+      }
+      if (typeof sentimentRow.taker_buy_vol === 'number' && typeof sentimentRow.taker_sell_vol === 'number'
+        && sentimentRow.taker_buy_vol > 0 && sentimentRow.taker_sell_vol > 0) {
+        factors.push(factorTakerVolume(sentimentRow.taker_buy_vol, sentimentRow.taker_sell_vol));
+      }
+      const prevSentiment = index > 0 ? undefined : undefined; // Will be handled separately
+      const oiChange = sentimentRow.oi_value || sentimentRow.open_interest;
+      if (typeof oiChange === 'number') {
+        const prevPrice = index > 0 ? candles[index - 1].close : candles[index].close;
+        const priceChange = prevPrice > 0 ? (candles[index].close - prevPrice) / prevPrice * 100 : 0;
+        factors.push(factorOpenInterest(oiChange, priceChange));
+      }
+    }
+  }
+  
+  // Indicator-based factors
+  if (index >= 50) {
+    const indicatorWindow = candles.slice(Math.max(0, index - 50), index + 1);
+    const indicators = calculateAllIndicators(indicatorWindow);
+    if (indicators.latest) {
+      factors.push(factorIndicatorMomentum(indicators.latest.rsi, indicators.latest.macd.histogram));
+      const support = srLevels.filter(l => l.type === 'support');
+      const resistance = srLevels.filter(l => l.type === 'resistance');
+      if (support.length > 0 || resistance.length > 0) {
+        factors.push(factorSupportResistance(candles[index].close, support, resistance));
+      }
+    }
+  }
+  
+  return factors;
+}
+
+// Analyze factor performance
+function analyzeFactorPerformance(trades: BacktestTrade[]): FactorAnalysis[] {
+  if (trades.length === 0) return [];
+  
+  const wins = trades.filter(t => t.pnl > 0);
+  const losses = trades.filter(t => t.pnl < 0);
+  const categoryMap = new Map<string, { winScores: number[]; lossScores: number[] }>();
+  
+  // Collect scores by category
+  for (const trade of trades) {
+    const factors = trade.entryFactors || [];
+    for (const factor of factors) {
+      if (!categoryMap.has(factor.category)) {
+        categoryMap.set(factor.category, { winScores: [], lossScores: [] });
+      }
+      const entry = categoryMap.get(factor.category)!;
+      if (trade.pnl > 0) {
+        entry.winScores.push(factor.score);
+      } else {
+        entry.lossScores.push(factor.score);
+      }
+    }
+  }
+  
+  const analysis: FactorAnalysis[] = [];
+  
+  for (const [category, scores] of categoryMap) {
+    const avgWin = scores.winScores.length > 0
+      ? scores.winScores.reduce((a, b) => a + b, 0) / scores.winScores.length
+      : 0;
+    const avgLoss = scores.lossScores.length > 0
+      ? scores.lossScores.reduce((a, b) => a + b, 0) / scores.lossScores.length
+      : 0;
+    
+    // Correlation: positive means factor score correlates with winning
+    const allScores = [...scores.winScores, ...scores.lossScores];
+    const allOutcomes = scores.winScores.map(() => 1).concat(scores.lossScores.map(() => -1));
+    const n = allScores.length;
+    let correlation = 0;
+    if (n > 1) {
+      const meanScore = allScores.reduce((a, b) => a + b, 0) / n;
+      const meanOutcome = allOutcomes.reduce((a, b) => a + b, 0) / n;
+      let numerator = 0, denomScore = 0, denomOutcome = 0;
+      for (let i = 0; i < n; i++) {
+        const ds = allScores[i] - meanScore;
+        const do_ = allOutcomes[i] - meanOutcome;
+        numerator += ds * do_;
+        denomScore += ds * ds;
+        denomOutcome += do_ * do_;
+      }
+      const denom = Math.sqrt(denomScore * denomOutcome);
+      correlation = denom > 0 ? numerator / denom : 0;
+    }
+    
+    // Suggested weight based on correlation
+    const label = category; // Will be mapped later
+    const suggestedWeight = Math.max(0, Math.min(1, 0.5 + correlation * 0.5));
+    
+    analysis.push({
+      category,
+      label,
+      avgScoreOnWin: Math.round(avgWin * 100) / 100,
+      avgScoreOnLoss: Math.round(avgLoss * 100) / 100,
+      correlation: Math.round(correlation * 100) / 100,
+      suggestedWeight: Math.round(suggestedWeight * 100) / 100,
+      currentWeight: 0, // Will be filled from params
+    });
+  }
+  
+  return analysis.sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
+}
+
+// Analyze signal effectiveness
+function analyzeSignalPerformance(trades: BacktestTrade[]): SignalAnalysis[] {
+  // This will analyze what types of signals led to trades
+  const signalMap = new Map<string, { wins: number; losses: number; returns: number[] }>();
+  
+  for (const trade of trades) {
+    // Determine signal type based on factors
+    const factors = trade.entryFactors || [];
+    const dominantFactor = factors.reduce((a, b) => Math.abs(a.score) > Math.abs(b.score) ? a : b, factors[0]);
+    
+    if (dominantFactor) {
+      const key = dominantFactor.category;
+      if (!signalMap.has(key)) {
+        signalMap.set(key, { wins: 0, losses: 0, returns: [] });
+      }
+      const entry = signalMap.get(key)!;
+      if (trade.pnl > 0) entry.wins++;
+      else entry.losses++;
+      entry.returns.push(trade.pnlPct);
+    }
+  }
+  
+  const analysis: SignalAnalysis[] = [];
+  
+  for (const [type, data] of signalMap) {
+    const total = data.wins + data.losses;
+    const winRate = total > 0 ? data.wins / total : 0;
+    const avgReturn = data.returns.length > 0
+      ? data.returns.reduce((a, b) => a + b, 0) / data.returns.length
+      : 0;
+    
+    let suggestedAction: SignalAnalysis['suggestedAction'] = 'keep';
+    if (total >= 5) {
+      if (winRate > 0.6 && avgReturn > 0.5) suggestedAction = 'increase_threshold';
+      else if (winRate < 0.35 && avgReturn < 0) suggestedAction = 'decrease_threshold';
+      else if (winRate < 0.25 && avgReturn < -1) suggestedAction = 'disable';
+    }
+    
+    analysis.push({
+      type,
+      label: type,
+      totalTriggers: total,
+      winRate: Math.round(winRate * 1000) / 10,
+      avgReturn: Math.round(avgReturn * 100) / 100,
+      suggestedAction,
+    });
+  }
+  
+  return analysis.sort((a, b) => b.totalTriggers - a.totalTriggers);
+}
+
+// Closed-loop optimization
+function runOptimization(
+  candles: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>,
+  binanceTicks: BacktestBinanceTick[],
+  sentimentData: BacktestSentimentRow[],
+  params: BacktestParams,
+): OptimizationResult {
+  // Run with current weights
+  const currentResult = backtestEngine(candles, binanceTicks, sentimentData, params);
+  
+  // Analyze factors
+  const factorAnalysis = analyzeFactorPerformance(currentResult.trades);
+  const signalAnalysis = analyzeSignalPerformance(currentResult.trades);
+  
+  // Generate optimized weights based on analysis
+  const optimizedWeights: Record<string, number> = { ...params.weights };
+  const improvements: string[] = [];
+  
+  for (const fa of factorAnalysis) {
+    if (fa.correlation > 0.1) {
+      // Factor correlates with wins - increase weight
+      const increase = Math.min(0.3, fa.correlation * 0.5);
+      optimizedWeights[fa.category] = Math.min(1, (fa.currentWeight || 0.5) + increase);
+      improvements.push(`${fa.label}: 增加权重 (相关性 ${fa.correlation.toFixed(2)})`);
+    } else if (fa.correlation < -0.1) {
+      // Factor correlates with losses - decrease weight
+      const decrease = Math.min(0.3, Math.abs(fa.correlation) * 0.5);
+      optimizedWeights[fa.category] = Math.max(0, (fa.currentWeight || 0.5) - decrease);
+      improvements.push(`${fa.label}: 降低权重 (负相关 ${fa.correlation.toFixed(2)})`);
+    }
+  }
+  
+  // Signal-based improvements
+  for (const sa of signalAnalysis) {
+    if (sa.suggestedAction === 'disable') {
+      improvements.push(`${sa.label}: 建议禁用 (胜率 ${sa.winRate.toFixed(1)}%)`);
+    } else if (sa.suggestedAction === 'increase_threshold') {
+      improvements.push(`${sa.label}: 建议提高阈值 (表现良好)`);
+    }
+  }
+  
+  // Run with optimized weights
+  const optimizedResult = backtestEngine(candles, binanceTicks, sentimentData, {
+    ...params,
+    weights: optimizedWeights,
+  });
+  
+  // Calculate improvement
+  const returnDiff = optimizedResult.metrics.totalReturn - currentResult.metrics.totalReturn;
+  const sharpeDiff = optimizedResult.metrics.sharpe - currentResult.metrics.sharpe;
+  if (returnDiff > 0.5) improvements.unshift(`预期收益提升: +${returnDiff.toFixed(2)}%`);
+  if (sharpeDiff > 0.1) improvements.unshift(`夏普比率提升: +${sharpeDiff.toFixed(2)}`);
+  
+  return {
+    currentMetrics: currentResult.metrics,
+    optimizedWeights,
+    optimizedMetrics: optimizedResult.metrics,
+    factorAnalysis,
+    signalAnalysis,
+    improvements,
   };
 }
 
@@ -178,12 +486,17 @@ export function backtestEngine(
   let binanceIndex = -1;
   let sentimentIndex = -1;
   let pendingDirection: 'long' | 'short' | null = null;
+  let pendingFactors: Factor[] = [];
   let position: {
     direction: 'long' | 'short'; entry: number; entryTime: number; entryIdx: number;
     quantity: number; entryEquity: number; entryFee: number; fundingCost: number; lastFundingTs: number;
+    entryFactors: Factor[];
   } | null = null;
 
   const slippageRate = slippageBps / 10000;
+  
+  // Pre-compute support/resistance levels
+  const srLevels = findSupportResistance(candles);
 
   for (let i = 50; i < candles.length; i++) {
     const candle = candles[i];
@@ -205,9 +518,10 @@ export function backtestEngine(
       position = {
         direction: pendingDirection, entry, entryTime: candle.time, entryIdx: i,
         quantity, entryEquity, entryFee, fundingCost: 0,
-        lastFundingTs: candle.time,
+        lastFundingTs: candle.time, entryFactors: pendingFactors,
       };
       pendingDirection = null;
+      pendingFactors = [];
     }
 
     if (position) {
@@ -231,8 +545,19 @@ export function backtestEngine(
       const timedOut = i - position.entryIdx >= holdBars;
       let exitReason: BacktestTrade['exitReason'] | null = null;
       let rawExit = candle.close;
+      
+      // Check for exit signal (direction reversal)
+      const exitFactors = calculateFactorsAtPosition(candles, i, 
+        binanceIndex >= 0 ? orderedBinance[binanceIndex] : undefined,
+        sentimentIndex >= 0 ? orderedSentiment[sentimentIndex] : undefined,
+        params, srLevels);
+      const exitComposite = calculateWeightedComposite(exitFactors, weights).composite;
+      const exitSignal = (position.direction === 'long' && exitComposite < -threshold) ||
+                         (position.direction === 'short' && exitComposite > threshold);
+      
       if (hitStop) { exitReason = 'stopLoss'; rawExit = stop; }
       else if (hitTarget) { exitReason = 'takeProfit'; rawExit = target; }
+      else if (exitSignal) { exitReason = 'signal'; }
       else if (timedOut) exitReason = 'timeout';
 
       if (exitReason) {
@@ -257,34 +582,27 @@ export function backtestEngine(
           pnl: Math.round(net * 100) / 100,
           pnlPct: Math.round((net / position.entryEquity) * 10000) / 100,
           exitReason,
+          entryFactors: position.entryFactors,
+          exitFactors,
+          composite: exitComposite,
         });
         position = null;
       }
     }
 
     if (!position && !pendingDirection) {
-      const factorWindow = candles.slice(Math.max(0, i - 20), i + 1);
-      const factors: Factor[] = [factorMomentum(factorWindow), factorVolatility(factorWindow)];
-      if (hasRealVolume) factors.push(factorVolume(factorWindow));
       const binance = binanceIndex >= 0 ? orderedBinance[binanceIndex] : undefined;
-      if (binance && candle.time - binance.ts <= observationToleranceSec) {
-        factors.push(factorFundingRate(binance.funding_rate || 0));
-        const alignedFx = orderedFx.length
-          ? findFxAtOrBefore(orderedFx, candle.time, observationToleranceSec)?.mid
-          : fxRate;
-        if (alignedFx && binance.price > 0) factors.push(factorPremium(candle.close, binance.price, alignedFx));
-      }
       const sentiment = sentimentIndex >= 0 ? orderedSentiment[sentimentIndex] : undefined;
-      if (sentiment && candle.time - sentiment.ts <= observationToleranceSec) {
-        if (typeof sentiment.ls_ratio === 'number' && sentiment.ls_ratio > 0) factors.push(factorLongShortRatio(sentiment.ls_ratio));
-        if (typeof sentiment.taker_buy_vol === 'number' && typeof sentiment.taker_sell_vol === 'number'
-          && sentiment.taker_buy_vol > 0 && sentiment.taker_sell_vol > 0) {
-          factors.push(factorTakerVolume(sentiment.taker_buy_vol, sentiment.taker_sell_vol));
-        }
-      }
+      const factors = calculateFactorsAtPosition(candles, i, binance, sentiment, params, srLevels);
       const composite = calculateWeightedComposite(factors, weights).composite;
-      if (composite > threshold) pendingDirection = 'long';
-      else if (composite < -threshold) pendingDirection = 'short';
+      
+      if (composite > threshold) {
+        pendingDirection = 'long';
+        pendingFactors = factors;
+      } else if (composite < -threshold) {
+        pendingDirection = 'short';
+        pendingFactors = factors;
+      }
     }
     equityCurve.push(equity);
   }
@@ -308,13 +626,39 @@ export function backtestEngine(
       pnl: Math.round(net * 100) / 100,
       pnlPct: Math.round((net / position.entryEquity) * 10000) / 100,
       exitReason: 'timeout',
+      entryFactors: position.entryFactors,
+      exitFactors: [],
+      composite: 0,
     });
     equityCurve.push(equity);
   }
 
+  const metrics = computeMetrics(trades, equityCurve, initialEquity, timeframe);
+  const factorAnalysis = analyzeFactorPerformance(trades);
+  const signalAnalysis = analyzeSignalPerformance(trades);
+  
+  // Fill in current weights
+  for (const fa of factorAnalysis) {
+    fa.currentWeight = weights[fa.category] || 0.5;
+  }
+  
+  // Map labels
+  const labelMap: Record<string, string> = {
+    momentum: '价格动量', funding: '资金费率', volume: '成交量', volatility: '波动率',
+    fx: '汇率影响', premium: '合约溢价', indicator: '指标动量', structure: '结构位',
+    lsRatio: '多空比', takerVol: '主动买卖', openInterest: '持仓量',
+    lsTrend: '多空趋势', whale: '庄家动向', news: '新闻情绪',
+  };
+  for (const fa of factorAnalysis) {
+    fa.label = labelMap[fa.category] || fa.category;
+  }
+  for (const sa of signalAnalysis) {
+    sa.label = labelMap[sa.type] || sa.type;
+  }
+
   return {
     trades,
-    metrics: computeMetrics(trades, equityCurve, initialEquity, timeframe),
+    metrics,
     equityCurve,
     weights,
     costs: {
@@ -322,15 +666,35 @@ export function backtestEngine(
       slippage: Math.round(costs.slippage * 100) / 100,
       funding: Math.round(costs.funding * 100) / 100,
     },
+    factorAnalysis,
+    signalAnalysis,
   };
 }
 
+// Full optimization with closed-loop feedback
+export function backtestWithOptimization(
+  candles: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>,
+  binanceTicks: BacktestBinanceTick[],
+  sentimentData: BacktestSentimentRow[],
+  params: BacktestParams = {},
+): BacktestResult {
+  const result = backtestEngine(candles, binanceTicks, sentimentData, params);
+  
+  // Run optimization
+  const optimization = runOptimization(candles, binanceTicks, sentimentData, params);
+  
+  return {
+    ...result,
+    optimization,
+  };
+}
+
+// Legacy optimization function (kept for backward compatibility)
 export function optimizeWeights(
   candles: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>,
   binanceTicks: BacktestBinanceTick[],
   sentimentData: BacktestSentimentRow[]
 ): BacktestResult {
-  // Grid search for optimal parameters
   const thresholds = [1.5, 2, 2.5, 3];
   const holdBars = [8, 12, 16, 20];
   const stopLosses = [2, 3, 4];

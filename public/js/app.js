@@ -569,6 +569,126 @@ async function runBacktest(optimize = false) {
       }
     }
     
+    // Display optimization results (factor analysis, signal analysis, improvements)
+    if (optimize && data.optimization) {
+      const opt = data.optimization;
+      
+      // Factor Analysis
+      if (opt.factorAnalysis && opt.factorAnalysis.length > 0) {
+        const factorEl = document.createElement('div');
+        factorEl.style.cssText = 'margin-top:10px;padding-top:8px;border-top:1px solid var(--border)';
+        
+        const factorTitle = document.createElement('div');
+        factorTitle.style.cssText = 'font-size:10px;color:var(--text);margin-bottom:6px;font-weight:600';
+        factorTitle.textContent = '因子分析:';
+        factorEl.appendChild(factorTitle);
+        
+        for (const fa of opt.factorAnalysis.slice(0, 6)) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;justify-content:space-between;font-size:9px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03)';
+          
+          const nameSpan = document.createElement('span');
+          nameSpan.textContent = fa.label;
+          nameSpan.style.cssText = 'color:var(--text-bright)';
+          
+          const corrSpan = document.createElement('span');
+          const corrColor = fa.correlation > 0.1 ? 'var(--green)' : fa.correlation < -0.1 ? 'var(--red)' : 'var(--text)';
+          corrSpan.textContent = `相关:${fa.correlation.toFixed(2)}`;
+          corrSpan.style.cssText = `color:${corrColor};font-family:monospace`;
+          
+          const sugSpan = document.createElement('span');
+          sugSpan.textContent = `建议:${(fa.suggestedWeight * 100).toFixed(0)}%`;
+          sugSpan.style.cssText = 'color:var(--yellow);font-family:monospace';
+          
+          row.append(nameSpan, corrSpan, sugSpan);
+          factorEl.appendChild(row);
+        }
+        
+        weightsEl.appendChild(factorEl);
+      }
+      
+      // Signal Analysis
+      if (opt.signalAnalysis && opt.signalAnalysis.length > 0) {
+        const signalEl = document.createElement('div');
+        signalEl.style.cssText = 'margin-top:10px;padding-top:8px;border-top:1px solid var(--border)';
+        
+        const signalTitle = document.createElement('div');
+        signalTitle.style.cssText = 'font-size:10px;color:var(--text);margin-bottom:6px;font-weight:600';
+        signalTitle.textContent = '信号效果:';
+        signalEl.appendChild(signalTitle);
+        
+        for (const sa of opt.signalAnalysis.slice(0, 5)) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;justify-content:space-between;font-size:9px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03)';
+          
+          const nameSpan = document.createElement('span');
+          nameSpan.textContent = sa.label;
+          nameSpan.style.cssText = 'color:var(--text-bright)';
+          
+          const winSpan = document.createElement('span');
+          const winColor = sa.winRate > 55 ? 'var(--green)' : sa.winRate < 40 ? 'var(--red)' : 'var(--text)';
+          winSpan.textContent = `胜率:${sa.winRate.toFixed(1)}%`;
+          winSpan.style.cssText = `color:${winColor};font-family:monospace`;
+          
+          const actionSpan = document.createElement('span');
+          const actionLabels = { keep: '保持', increase_threshold: '↑阈值', decrease_threshold: '↓阈值', disable: '禁用' };
+          actionSpan.textContent = actionLabels[sa.suggestedAction] || sa.suggestedAction;
+          actionSpan.style.cssText = sa.suggestedAction === 'disable' ? 'color:var(--red)' : 'color:var(--text)';
+          
+          row.append(nameSpan, winSpan, actionSpan);
+          signalEl.appendChild(row);
+        }
+        
+        weightsEl.appendChild(signalEl);
+      }
+      
+      // Improvements
+      if (opt.improvements && opt.improvements.length > 0) {
+        const impEl = document.createElement('div');
+        impEl.style.cssText = 'margin-top:10px;padding-top:8px;border-top:1px solid var(--border)';
+        
+        const impTitle = document.createElement('div');
+        impTitle.style.cssText = 'font-size:10px;color:var(--text);margin-bottom:6px;font-weight:600';
+        impTitle.textContent = '优化建议:';
+        impEl.appendChild(impTitle);
+        
+        for (const imp of opt.improvements.slice(0, 5)) {
+          const row = document.createElement('div');
+          row.style.cssText = 'font-size:9px;padding:2px 0;color:var(--yellow)';
+          row.textContent = '• ' + imp;
+          impEl.appendChild(row);
+        }
+        
+        weightsEl.appendChild(impEl);
+      }
+      
+      // Comparison metrics
+      if (opt.currentMetrics && opt.optimizedMetrics) {
+        const compEl = document.createElement('div');
+        compEl.style.cssText = 'margin-top:10px;padding:6px;background:rgba(255,255,255,0.02);border-radius:4px';
+        
+        const compTitle = document.createElement('div');
+        compTitle.style.cssText = 'font-size:9px;color:var(--text);margin-bottom:4px';
+        compTitle.textContent = '优化对比:';
+        compEl.appendChild(compTitle);
+        
+        const createCompRow = (label, before, after, format = v => v.toFixed(2)) => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;justify-content:space-between;font-size:9px;padding:1px 0';
+          const diff = after - before;
+          const color = diff > 0 ? 'var(--green)' : diff < 0 ? 'var(--red)' : 'var(--text)';
+          row.innerHTML = `<span>${label}</span><span style="color:${color}">${format(before)} → ${format(after)}</span>`;
+          return row;
+        };
+        
+        compEl.appendChild(createCompRow('收益%', opt.currentMetrics.totalReturn, opt.optimizedMetrics.totalReturn));
+        compEl.appendChild(createCompRow('夏普', opt.currentMetrics.sharpe, opt.optimizedMetrics.sharpe));
+        compEl.appendChild(createCompRow('胜率%', opt.currentMetrics.winRate, opt.optimizedMetrics.winRate));
+        
+        weightsEl.appendChild(compEl);
+      }
+    }
+    
     // Update trades with safe DOM manipulation
     const tradesEl = $('btTradesArea');
     if (tradesEl && data.trades) {

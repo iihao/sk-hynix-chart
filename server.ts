@@ -56,6 +56,7 @@ import {
 } from './src/domain/strategy';
 import {
   backtestEngine,
+  backtestWithOptimization,
   optimizeWeights,
   BacktestParams,
   BacktestResult,
@@ -2391,11 +2392,19 @@ app.get('/api/backtest', async (req, res) => {
 
     if (optimize) {
       await autoOptimize();
-      // Run on full, train, and test sets
+      // Run with optimization (closed-loop)
       const optimizedParams = toDomainBacktestParams({ ...activeParams, leverage, tf, fxTicks: fxWindow }, activeWeights);
-      const fullResult = backtestEngine(candles, binanceWindow as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], optimizedParams);
+      const fullResult = backtestWithOptimization(candles, binanceWindow as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], optimizedParams);
       const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, optimizedParams);
       const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], optimizedParams);
+      
+      // Apply optimized weights if they improve performance
+      if (fullResult.optimization?.optimizedMetrics?.sharpe > fullResult.metrics.sharpe + 0.1) {
+        Object.assign(activeWeights, fullResult.optimization.optimizedWeights);
+        lastOptimizeTime = Date.now();
+        console.log(`[backtest] weights optimized: sharpe ${fullResult.metrics.sharpe} → ${fullResult.optimization.optimizedMetrics.sharpe}`);
+      }
+      
       res.json({
         params: { tf, optimize: true, ...activeParams },
         ...fullResult,
