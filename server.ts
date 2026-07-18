@@ -1052,6 +1052,30 @@ async function getAllTimeframes(source = 'yahoo') {
       binanceLine('15m', sharedMeta), binanceLine('1h', sharedMeta),
     ]);
     binance = { m1: b1, m5: b5, m15: b15, h1: bh };
+    
+    // Use Binance candles as primary if available (has real volume data)
+    const useBinance = b1?.candles?.length >= 10;
+    if (useBinance) {
+      const convertCandle = (bnData: any) => ({
+        source: 'binance',
+        candles: bnData.candles || [],
+        meta: {
+          currency: 'USD',
+          price: bnData.meta?.price || 0,
+          previousClose: bnData.candles?.length >= 2 ? bnData.candles[bnData.candles.length - 2]?.close : 0,
+          exchangeName: 'Binance Futures',
+          ...metaCommon(),
+          marketOpen: true,
+          tickCount: bnData.candles?.length || 0,
+        },
+        dataSource: 'binance',
+      });
+      m1 = convertCandle(b1);
+      m5 = convertCandle(b5);
+      m15 = convertCandle(b15);
+      h1 = convertCandle(bh);
+      source = 'binance';
+    }
   } catch (err) {
     console.error('[binance] fetch error:', err.message);
   }

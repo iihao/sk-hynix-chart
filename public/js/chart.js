@@ -146,11 +146,22 @@ export function applyIndicators(tf, indicators, times) {
   const c = state.charts[tf];
   if (!c || !indicators) return;
 
+  const isBinance = indicators.dataSource === 'binance';
+  
   const toLine = (arr) => {
     if (!arr || !arr.length || !times || !times.length) return [];
     return arr.map((v, i) => {
       if (v == null || i >= times.length) return null;
-      return { time: times[i], value: state.currency === 'KRW' ? v : v / state.krwUsdRate };
+      // Binance data is already in USD, Naver data is in KRW
+      let value = v;
+      if (!isBinance) {
+        // Naver: convert KRW to USD if needed
+        value = state.currency === 'KRW' ? v : v / state.krwUsdRate;
+      } else {
+        // Binance: already USD, convert to KRW if needed
+        value = state.currency === 'KRW' ? Math.round(v * state.krwUsdRate) : v;
+      }
+      return { time: times[i], value };
     }).filter(Boolean);
   };
 
@@ -214,6 +225,7 @@ export function pushData(tf, data, bnData) {
   const c = state.charts[tf];
   if (!c) return;
   const isNaver = state.currentSource === 'naver';
+  const isBinanceData = data?.dataSource === 'binance';
 
   if (isNaver && data?.candles?.length && c.naverLine) {
     c.series.applyOptions({ visible: false });
@@ -224,17 +236,23 @@ export function pushData(tf, data, bnData) {
       value: convertP(i.close),
     }));
     c.naverLine.setData(lineData);
-  } else if (!isNaver && data?.candles?.length) {
+  } else if (data?.candles?.length) {
     c.series.applyOptions({ visible: true });
     c.volSeries.applyOptions({ visible: true });
     if (c.naverLine) c.naverLine.applyOptions({ visible: false });
-    const candles = data.candles.map((i) => ({
-      time: i.time,
-      open: convertP(i.open),
-      high: convertP(i.high),
-      low: convertP(i.low),
-      close: convertP(i.close),
-    }));
+    const candles = data.candles.map((i) => {
+      // Binance data is already USD, Naver data is KRW
+      const convert = isBinanceData
+        ? (v) => state.currency === 'KRW' ? Math.round(v * state.krwUsdRate) : +(v).toFixed(2)
+        : (v) => convertP(v);
+      return {
+        time: i.time,
+        open: convert(i.open),
+        high: convert(i.high),
+        low: convert(i.low),
+        close: convert(i.close),
+      };
+    });
     c.series.setData(candles);
     c.volSeries.setData(
       data.candles.map((cc) => ({
