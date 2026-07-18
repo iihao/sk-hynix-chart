@@ -222,6 +222,69 @@
         <!-- Risk -->
         <div id="riskArea"></div>
 
+        <!-- Paper Trading -->
+        <div class="collapsible open" id="paperTradingCollapsible">
+          <div class="collapsible-head" onclick="toggleCollapsible('paperTradingCollapsible')">
+            <span class="collapsible-title">模拟交易</span>
+            <span class="collapsible-arrow">▶</span>
+          </div>
+          <div class="collapsible-body">
+            <div class="paper-box" id="paperBox">
+              <div class="paper-topline">
+                <span>SKHYNIXUSDT Perp</span>
+                <span id="paperMarkPrice">--</span>
+              </div>
+              <div class="paper-equity-grid">
+                <div class="paper-metric major">
+                  <span>总权益</span>
+                  <b id="paperEquity">--</b>
+                </div>
+                <div class="paper-metric">
+                  <span>可用</span>
+                  <b id="paperAvailable">--</b>
+                </div>
+                <div class="paper-metric">
+                  <span>未实现</span>
+                  <b id="paperUnrealized">--</b>
+                </div>
+                <div class="paper-metric">
+                  <span>已实现</span>
+                  <b id="paperRealized">--</b>
+                </div>
+              </div>
+              <div class="paper-account-row">
+                <input class="paper-input" id="paperInitialBalance" type="number" min="1" step="100" placeholder="初始资产 USDT">
+                <input class="paper-input" id="paperAvailableBalance" type="number" min="0" step="100" placeholder="可用余额 USDT">
+                <button class="paper-mini-btn" onclick="paperSaveAccount()">设置资产</button>
+              </div>
+              <div class="paper-order-card">
+                <div class="paper-side-tabs">
+                  <button class="paper-side active long" id="paperLongBtn" onclick="paperSetDirection('long')">买入/做多</button>
+                  <button class="paper-side short" id="paperShortBtn" onclick="paperSetDirection('short')">卖出/做空</button>
+                </div>
+                <div class="paper-form-grid">
+                  <label>仓位 USDT<input class="paper-input" id="paperNotional" type="number" value="1000" min="1" step="100"></label>
+                  <label>杠杆<input class="paper-input" id="paperLeverage" type="number" value="10" min="1" max="125" step="1"></label>
+                  <label>入场价<input class="paper-input" id="paperEntryPrice" type="number" placeholder="默认当前价" step="0.01"></label>
+                  <label>止盈价<input class="paper-input" id="paperTakeProfit" type="number" placeholder="可选" step="0.01"></label>
+                  <label>止损价<input class="paper-input" id="paperStopLoss" type="number" placeholder="可选" step="0.01"></label>
+                </div>
+                <button class="paper-submit long" id="paperSubmitBtn" onclick="paperSubmitOrder()">模拟开仓</button>
+              </div>
+              <div class="paper-section-head">
+                <span>当前持仓</span>
+                <button class="paper-link-btn" onclick="paperCloseAll()">清仓</button>
+              </div>
+              <div id="paperPositions"></div>
+              <div class="paper-section-head">
+                <span>成交结算</span>
+                <span id="paperReturnPct">--</span>
+              </div>
+              <div id="paperFills"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Factors -->
         <div class="collapsible open" id="factorsCollapsible">
           <div class="collapsible-head" onclick="toggleCollapsible('factorsCollapsible')">

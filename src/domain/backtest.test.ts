@@ -34,7 +34,7 @@ describe('backtest accounting', () => {
     candles[51] = { time: 51, open: 101, high: 101, low: 101, close: 101, volume: 0 };
     candles[52] = { time: 52, open: 101, high: 110, low: 90, close: 105, volume: 0 };
     const result = backtestEngine(candles, [{ ts: 50, price: 100, funding_rate: -0.002 }], [], {
-      threshold: 1,
+      threshold: 0.8,
       holdBars: 100,
       stopLossPct: 5,
       takeProfitPct: 5,
@@ -54,7 +54,7 @@ describe('backtest accounting', () => {
       { ts: 50, price: 100, funding_rate: -0.002 },
       { ts: 52, price: 102, funding_rate: 0.001, isFundingEvent: true },
     ], [], {
-      threshold: 1,
+      threshold: 0.8,
       holdBars: 1,
       stopLossPct: 50,
       takeProfitPct: 50,

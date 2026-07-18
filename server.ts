@@ -71,6 +71,17 @@ import {
 } from './src/contracts/stream';
 import { parseBacktestParams } from './src/contracts/params';
 import { calculateContract, ContractValidationError } from './src/domain/contract';
+import {
+  closePaperPosition,
+  findTriggeredExit,
+  openPaperPosition,
+  PaperTradeValidationError,
+  summarizePaperAccount,
+  PaperAccountState,
+  PaperPosition,
+  PaperFill,
+  PaperDirection,
+} from './src/domain/paper-trading';
 import { buildSpotCandles, extendFlatCandlesToNow } from './src/domain/candles';
 import { canRecordSpotTick, classifyObservationAge } from './src/domain/market-quality';
 import { buildLevelGroups } from './src/domain/levels';
@@ -229,6 +240,47 @@ db.exec(`
     source TEXT NOT NULL
   );
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS paper_account (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    initial_balance REAL NOT NULL,
+    available_balance REAL NOT NULL,
+    realized_pnl REAL NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS paper_positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    direction TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    quantity REAL NOT NULL,
+    leverage REAL NOT NULL,
+    margin REAL NOT NULL,
+    notional REAL NOT NULL,
+    take_profit_price REAL,
+    stop_loss_price REAL,
+    opened_at INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    closed_at INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS paper_fills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    position_id INTEGER,
+    type TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    price REAL NOT NULL,
+    quantity REAL NOT NULL,
+    notional REAL NOT NULL,
+    fee REAL NOT NULL,
+    realized_pnl REAL NOT NULL,
+    balance_after REAL NOT NULL,
+    reason TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+`);
+db.prepare(`
+  INSERT OR IGNORE INTO paper_account (id, initial_balance, available_balance, realized_pnl, updated_at)
+  VALUES (1, 10000, 10000, 0, ?)
+`).run(Math.floor(Date.now() / 1000));
 insertFxTick = db.prepare('INSERT OR REPLACE INTO fx_ticks (ts, bid, ask, mid, source) VALUES (?, ?, ?, ?, ?)');
 const selectFxRange = db.prepare('SELECT ts, bid, ask, mid, source FROM fx_ticks WHERE ts >= ? AND ts <= ? ORDER BY ts');
 const selectFxAtOrBefore = db.prepare('SELECT ts, bid, ask, mid, source FROM fx_ticks WHERE ts <= ? ORDER BY ts DESC LIMIT 1');
@@ -259,6 +311,130 @@ const selectRange = db.prepare('SELECT ts, price, prev_close, market_open, after
 const selectLatest = db.prepare('SELECT ts, price, prev_close, market_open, after_hours_price, after_hours_session FROM ticks ORDER BY ts DESC LIMIT 1');
 const countTicks = db.prepare('SELECT COUNT(*) as cnt FROM ticks');
 const countAfterHours = db.prepare('SELECT COUNT(*) as cnt FROM ticks WHERE after_hours_price IS NOT NULL');
+const selectPaperAccount = db.prepare('SELECT * FROM paper_account WHERE id = 1');
+const updatePaperAccount = db.prepare('UPDATE paper_account SET initial_balance = ?, available_balance = ?, realized_pnl = ?, updated_at = ? WHERE id = 1');
+const selectOpenPaperPositions = db.prepare('SELECT * FROM paper_positions WHERE status = ? ORDER BY opened_at DESC, id DESC');
+const selectPaperPositionById = db.prepare('SELECT * FROM paper_positions WHERE id = ? AND status = ?');
+const insertPaperPosition = db.prepare(`INSERT INTO paper_positions
+  (direction, entry_price, quantity, leverage, margin, notional, take_profit_price, stop_loss_price, opened_at, status)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN')`);
+const closePaperPositionStmt = db.prepare('UPDATE paper_positions SET status = ?, closed_at = ? WHERE id = ?');
+const insertPaperFill = db.prepare(`INSERT INTO paper_fills
+  (position_id, type, direction, price, quantity, notional, fee, realized_pnl, balance_after, reason, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+const selectPaperFills = db.prepare('SELECT * FROM paper_fills ORDER BY created_at DESC, id DESC LIMIT ?');
+
+function roundNumber(value: number, digits = 2): number {
+  const scale = 10 ** digits;
+  return Math.round(value * scale) / scale;
+}
+
+function getPaperAccount(): PaperAccountState {
+  const row = selectPaperAccount.get() as any;
+  return {
+    initialBalance: Number(row.initial_balance),
+    availableBalance: Number(row.available_balance),
+    realizedPnl: Number(row.realized_pnl),
+  };
+}
+
+function savePaperAccount(account: PaperAccountState): void {
+  updatePaperAccount.run(
+    account.initialBalance,
+    account.availableBalance,
+    account.realizedPnl,
+    Math.floor(Date.now() / 1000),
+  );
+}
+
+function mapPaperPosition(row: any): PaperPosition {
+  return {
+    id: Number(row.id),
+    direction: row.direction as PaperDirection,
+    entryPrice: Number(row.entry_price),
+    quantity: Number(row.quantity),
+    leverage: Number(row.leverage),
+    margin: Number(row.margin),
+    notional: Number(row.notional),
+    takeProfitPrice: row.take_profit_price == null ? null : Number(row.take_profit_price),
+    stopLossPrice: row.stop_loss_price == null ? null : Number(row.stop_loss_price),
+    openedAt: Number(row.opened_at),
+  };
+}
+
+function mapPaperFill(row: any) {
+  return {
+    id: Number(row.id),
+    positionId: row.position_id == null ? null : Number(row.position_id),
+    type: row.type,
+    direction: row.direction,
+    price: Number(row.price),
+    quantity: Number(row.quantity),
+    notional: Number(row.notional),
+    fee: Number(row.fee),
+    realizedPnl: Number(row.realized_pnl),
+    balanceAfter: Number(row.balance_after),
+    reason: row.reason,
+    createdAt: Number(row.created_at),
+  };
+}
+
+function savePaperFill(fill: PaperFill, positionId: number | null): void {
+  insertPaperFill.run(
+    positionId,
+    fill.type,
+    fill.direction,
+    fill.price,
+    fill.quantity,
+    fill.notional,
+    fill.fee,
+    fill.realizedPnl,
+    fill.balanceAfter,
+    fill.reason,
+    fill.createdAt,
+  );
+}
+
+function readOpenPaperPositions(): PaperPosition[] {
+  return (selectOpenPaperPositions.all('OPEN') as any[]).map(mapPaperPosition);
+}
+
+function latestPaperMarkPrice(): number {
+  const latest = selectBinanceLatest.get() as any;
+  return Number(latest?.mark_price || latest?.price || 0);
+}
+
+async function getPaperMarkPrice(): Promise<number> {
+  const local = latestPaperMarkPrice();
+  if (Number.isFinite(local) && local > 0) return local;
+  const meta = await binanceMetaWithFallback();
+  return Number((meta as any).markPrice || (meta as any).price || 0);
+}
+
+async function buildPaperSummary(markPriceInput?: number) {
+  const markPrice = Number(markPriceInput) > 0 ? Number(markPriceInput) : await getPaperMarkPrice();
+  const account = getPaperAccount();
+  const positions = readOpenPaperPositions();
+  const summary = summarizePaperAccount(account, positions, markPrice);
+  return {
+    ...summary,
+    fills: (selectPaperFills.all(20) as any[]).map(mapPaperFill),
+    serverTime: Date.now(),
+  };
+}
+
+function parseOptionalPositive(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return num;
+}
+
+function paperError(res: Response, err: any): void {
+  const message = err instanceof Error ? err.message : String(err);
+  const status = err instanceof PaperTradeValidationError ? 400 : 500;
+  res.status(status).json({ error: { code: status === 400 ? 'PAPER_VALIDATION_ERROR' : 'PAPER_ERROR', message } });
+}
 
 function fetchJSON<T = any>(url: string, useEnvironmentProxy = true): Promise<T> {
   const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
@@ -2480,6 +2656,137 @@ app.get('/api/binance/price', async (req, res) => {
   }
 });
 
+// ── API: paper trading ──
+app.get('/api/paper/account', async (req, res) => {
+  try {
+    res.json(await buildPaperSummary());
+  } catch (err) {
+    paperError(res, err);
+  }
+});
+
+app.patch('/api/paper/account', express.json(), async (req, res) => {
+  try {
+    const current = getPaperAccount();
+    const initialBalance = req.body.initialBalance != null ? Number(req.body.initialBalance) : current.initialBalance;
+    const availableBalance = req.body.availableBalance != null ? Number(req.body.availableBalance) : initialBalance;
+    const realizedPnl = req.body.realizedPnl != null ? Number(req.body.realizedPnl) : 0;
+    if (!Number.isFinite(initialBalance) || initialBalance <= 0) throw new PaperTradeValidationError('初始资产必须大于0');
+    if (!Number.isFinite(availableBalance) || availableBalance < 0) throw new PaperTradeValidationError('可用余额不能小于0');
+    if (!Number.isFinite(realizedPnl)) throw new PaperTradeValidationError('已实现盈亏必须为有限数字');
+    savePaperAccount({ initialBalance, availableBalance, realizedPnl });
+    res.json(await buildPaperSummary());
+  } catch (err) {
+    paperError(res, err);
+  }
+});
+
+app.get('/api/paper/positions', async (req, res) => {
+  try {
+    const markPrice = await getPaperMarkPrice();
+    res.json({ positions: summarizePaperAccount(getPaperAccount(), readOpenPaperPositions(), markPrice).positions, markPrice });
+  } catch (err) {
+    paperError(res, err);
+  }
+});
+
+app.post('/api/paper/orders', express.json(), async (req, res) => {
+  try {
+    const markPrice = await getPaperMarkPrice();
+    const direction = req.body.direction as PaperDirection;
+    const entryPrice = req.body.entryPrice != null && Number(req.body.entryPrice) > 0
+      ? Number(req.body.entryPrice)
+      : markPrice;
+    const opened = openPaperPosition(getPaperAccount(), {
+      direction,
+      entryPrice,
+      notional: Number(req.body.notional),
+      leverage: Number(req.body.leverage),
+      takeProfitPrice: parseOptionalPositive(req.body.takeProfitPrice),
+      stopLossPrice: parseOptionalPositive(req.body.stopLossPrice),
+      now: Math.floor(Date.now() / 1000),
+    });
+    const result = insertPaperPosition.run(
+      opened.position.direction,
+      opened.position.entryPrice,
+      opened.position.quantity,
+      opened.position.leverage,
+      opened.position.margin,
+      opened.position.notional,
+      opened.position.takeProfitPrice,
+      opened.position.stopLossPrice,
+      opened.position.openedAt,
+    );
+    const positionId = Number(result.lastInsertRowid);
+    savePaperAccount(opened.account);
+    savePaperFill(opened.fill, positionId);
+    res.json(await buildPaperSummary(markPrice));
+  } catch (err) {
+    paperError(res, err);
+  }
+});
+
+function settlePaperPosition(position: PaperPosition, exitPrice: number, type: 'CLOSE' | 'CLOSE_ALL' | 'TAKE_PROFIT' | 'STOP_LOSS') {
+  const closed = closePaperPosition(getPaperAccount(), position, {
+    exitPrice,
+    type,
+    now: Math.floor(Date.now() / 1000),
+  });
+  savePaperAccount(closed.account);
+  closePaperPositionStmt.run('CLOSED', closed.fill.createdAt, position.id);
+  savePaperFill(closed.fill, position.id || null);
+  return closed.fill;
+}
+
+app.post('/api/paper/positions/:id/close', express.json(), async (req, res) => {
+  try {
+    const row = selectPaperPositionById.get(Number(req.params.id), 'OPEN') as any;
+    if (!row) return res.status(404).json({ error: { code: 'PAPER_POSITION_NOT_FOUND', message: '持仓不存在或已平仓' } });
+    const markPrice = await getPaperMarkPrice();
+    const exitPrice = req.body.exitPrice != null && Number(req.body.exitPrice) > 0 ? Number(req.body.exitPrice) : markPrice;
+    settlePaperPosition(mapPaperPosition(row), exitPrice, 'CLOSE');
+    res.json(await buildPaperSummary(markPrice));
+  } catch (err) {
+    paperError(res, err);
+  }
+});
+
+app.post('/api/paper/positions/close-all', express.json(), async (req, res) => {
+  try {
+    const markPrice = await getPaperMarkPrice();
+    for (const position of readOpenPaperPositions()) {
+      settlePaperPosition(position, markPrice, 'CLOSE_ALL');
+    }
+    res.json(await buildPaperSummary(markPrice));
+  } catch (err) {
+    paperError(res, err);
+  }
+});
+
+app.get('/api/paper/fills', (req, res) => {
+  try {
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+    res.json({ fills: (selectPaperFills.all(limit) as any[]).map(mapPaperFill) });
+  } catch (err) {
+    paperError(res, err);
+  }
+});
+
+async function settleTriggeredPaperPositions() {
+  try {
+    const markPrice = await getPaperMarkPrice();
+    if (!Number.isFinite(markPrice) || markPrice <= 0) return;
+    for (const position of readOpenPaperPositions()) {
+      const trigger = findTriggeredExit(position, markPrice);
+      if (!trigger) continue;
+      settlePaperPosition(position, trigger.price, trigger.type);
+      console.log(`[paper] ${trigger.type} position=${position.id} price=${trigger.price}`);
+    }
+  } catch (err) {
+    console.error('[paper] trigger check error:', err.message);
+  }
+}
+
 // ── Timers ──
 // Auto-optimize factor weights on startup (delayed) and every hour
 scheduler.setTimeout(() => { autoOptimize(); }, 5000);
@@ -2541,6 +2848,9 @@ scheduler.setInterval(() => { recordTick(); }, 60000);
 
 // Record Binance tick every 30s for local fallback
 scheduler.setInterval(() => { recordBinanceTick(); }, 30000);
+
+// Check simulated TP/SL against Binance futures price
+scheduler.setInterval(() => { void settleTriggeredPaperPositions(); }, 5000);
 
 // Backfill missing Binance ticks every 5 minutes
 scheduler.setInterval(() => { backfillBinanceTicks(); }, 300000);

@@ -14,6 +14,7 @@ class Element {
     this.className = '';
     this.textContent = '';
   }
+  append(...children) { this.children.push(...children); }
   appendChild(child) { this.children.push(child); return child; }
   removeChild(child) { this.children.splice(this.children.indexOf(child), 1); }
   get firstChild() { return this.children[0] || null; }
@@ -24,7 +25,7 @@ test('renders external factor labels as text', () => {
   const root = new Element();
   renderFactors(document, root, [{label: '<img src=x>', detail: 'safe', score: 1.2}]);
   assert.equal(root.children[0].children[0].textContent, '<img src=x>');
-  assert.equal(root.children[0].children[2].textContent, '+1.2');
+  assert.equal(root.children[0].children[2].textContent, '↑1.2');
 });
 
 test('renders an explicit empty signal state', () => {

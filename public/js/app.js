@@ -34,6 +34,14 @@ import {
   normalizeFactors,
   normalizeIndicators,
 } from './dashboard-data.mjs';
+import {
+  paperCloseAll,
+  paperClosePosition,
+  paperSaveAccount,
+  paperSetDirection,
+  paperSubmitOrder,
+  updatePaperTrading,
+} from './paper-trading.js';
 
 const panelRequests = new Map();
 let secondaryTimers = [];
@@ -782,11 +790,13 @@ function startSecondarySchedules() {
   void updateFactors();
   void updateHealth();
   void refreshSelectedOverlays();
+  void updatePaperTrading();
   secondaryTimers = [
     setInterval(updateIndicators, 30000),
     setInterval(updateFactors, 60000),
     setInterval(updateHealth, 60000),
     setInterval(refreshSelectedOverlays, 60000),
+    setInterval(updatePaperTrading, 5000),
   ];
 }
 
@@ -853,3 +863,8 @@ window.toggleSource = toggleSource;
 window.runBacktest = runBacktest;
 window.updateIndicators = updateIndicators;
 window.updateFactors = updateFactors;
+window.paperSetDirection = paperSetDirection;
+window.paperSaveAccount = paperSaveAccount;
+window.paperSubmitOrder = paperSubmitOrder;
+window.paperClosePosition = paperClosePosition;
+window.paperCloseAll = paperCloseAll;
