@@ -797,7 +797,7 @@ const BINANCE_ENDPOINTS = [
   'https://fapi1.binance.com',
   'https://fapi2.binance.com',
 ];
-const BINANCE_PROXY = process.env.BINANCE_PROXY || '';
+const BINANCE_PROXY = process.env.BINANCE_PROXY || 'http://127.0.0.1:7890';
 let latestBinanceFundingTimeMs = 0;
 
 const binanceBreaker = createCircuitBreaker<any>({
