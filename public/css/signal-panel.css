@@ -993,6 +993,182 @@ body.signal-panel-open .signal-expand-strip { display: none; }
 .loss { color: var(--red) !important; }
 .neutral { color: var(--text) !important; }
 
+/* ── Binance-like Bottom Paper Terminal ── */
+.paper-terminal {
+  height: 264px;
+  flex-shrink: 0;
+  background: #11161d;
+  border-top: 1px solid #252b34;
+  box-shadow: 0 -1px 0 rgba(0,0,0,0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.paper-terminal-tabs {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 14px;
+  border-bottom: 1px solid #252b34;
+  background: #12171e;
+  color: #848e9c;
+  font-family: 'JetBrains Mono', monospace;
+}
+.paper-terminal-tab {
+  position: relative;
+  height: 42px;
+  border: 0;
+  background: transparent;
+  color: #848e9c;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+.paper-terminal-tab:hover {
+  color: #eaecef;
+}
+.paper-terminal-tab.active {
+  color: #eaecef;
+}
+.paper-terminal-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--yellow);
+}
+.paper-terminal-spacer {
+  flex: 1;
+}
+.paper-terminal-mark {
+  color: #848e9c;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.paper-terminal-mark b {
+  color: var(--green);
+  margin-left: 8px;
+}
+.paper-terminal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #11161d;
+}
+.paper-terminal-pane {
+  display: none;
+  height: 100%;
+  padding: 12px 14px;
+}
+.paper-terminal-pane.active {
+  display: block;
+}
+.paper-trade-grid {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  gap: 12px;
+  height: 100%;
+}
+.paper-table-card,
+.paper-terminal .paper-order-card {
+  min-height: 0;
+  background: #0f141b;
+  border: 1px solid #252b34;
+  border-radius: 8px;
+}
+.paper-terminal .paper-order-card {
+  margin: 0;
+  padding: 10px;
+}
+.paper-table-card {
+  padding: 10px;
+  overflow: auto;
+}
+.paper-terminal .paper-section-head {
+  margin-bottom: 8px;
+  color: #848e9c;
+}
+.paper-terminal .paper-section-head span:first-child {
+  color: #eaecef;
+  font-size: 12px;
+}
+.paper-terminal .paper-form-grid {
+  grid-template-columns: 1fr 1fr;
+}
+.paper-terminal .paper-form-grid label:nth-child(3),
+.paper-terminal .paper-form-grid label:nth-child(4),
+.paper-terminal .paper-form-grid label:nth-child(5) {
+  grid-column: span 2;
+}
+.paper-terminal .paper-position {
+  display: grid;
+  grid-template-columns: 220px 1fr 150px 68px;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 6px;
+  background: #111820;
+  border-radius: 6px;
+}
+.paper-terminal .paper-pos-main,
+.paper-terminal .paper-pos-grid,
+.paper-terminal .paper-pos-pnl {
+  margin: 0;
+}
+.paper-terminal .paper-pos-grid {
+  grid-template-columns: repeat(4, minmax(88px, 1fr));
+}
+.paper-terminal .paper-pos-pnl {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.paper-terminal .paper-close-btn {
+  position: static;
+  width: 58px;
+}
+.paper-assets-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.paper-assets-grid .paper-metric.major {
+  grid-column: span 1;
+}
+.paper-terminal .paper-account-row {
+  grid-template-columns: 180px 180px auto;
+  max-width: 520px;
+}
+.paper-terminal .paper-fill {
+  grid-template-columns: 150px 110px 110px 1fr 120px;
+  font-size: 11px;
+  padding: 8px 2px;
+}
+.paper-terminal .paper-empty {
+  background: transparent;
+  border: 1px dashed #2b3139;
+  color: #848e9c;
+  margin: 0;
+}
+
+@media (max-height: 820px) {
+  .paper-terminal {
+    height: 226px;
+  }
+  .paper-terminal-tabs {
+    height: 36px;
+  }
+  .paper-terminal-tab {
+    height: 36px;
+    font-size: 12px;
+  }
+}
+
 /* ── Risk Box ── */
 .risk-box { 
   padding: 8px 10px; 

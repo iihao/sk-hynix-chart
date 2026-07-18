@@ -140,6 +140,81 @@
           <div id="chart-h1" style="width:100%;height:100%"></div>
         </div>
       </div>
+
+      <!-- Paper Trading Terminal -->
+      <div class="paper-terminal" id="paperTradingTerminal">
+        <div class="paper-terminal-tabs">
+          <button class="paper-terminal-tab active" data-paper-tab="positions" onclick="paperSwitchTab('positions')">仓位(<span id="paperPositionCount">0</span>)</button>
+          <button class="paper-terminal-tab" data-paper-tab="openOrders" onclick="paperSwitchTab('openOrders')">当前委托(0)</button>
+          <button class="paper-terminal-tab" data-paper-tab="orderHistory" onclick="paperSwitchTab('orderHistory')">历史委托</button>
+          <button class="paper-terminal-tab" data-paper-tab="fills" onclick="paperSwitchTab('fills')">历史成交</button>
+          <button class="paper-terminal-tab" data-paper-tab="ledger" onclick="paperSwitchTab('ledger')">资金流水</button>
+          <button class="paper-terminal-tab" data-paper-tab="positionHistory" onclick="paperSwitchTab('positionHistory')">仓位历史记录</button>
+          <button class="paper-terminal-tab" data-paper-tab="bot" onclick="paperSwitchTab('bot')">机器人</button>
+          <button class="paper-terminal-tab" data-paper-tab="assets" onclick="paperSwitchTab('assets')">资产</button>
+          <div class="paper-terminal-spacer"></div>
+          <span class="paper-terminal-mark">SKHYNIXUSDT <b id="paperMarkPrice">--</b></span>
+        </div>
+        <div class="paper-terminal-body">
+          <div class="paper-terminal-pane active" data-paper-pane="positions">
+            <div class="paper-trade-grid">
+              <div class="paper-order-card">
+                <div class="paper-side-tabs">
+                  <button class="paper-side active long" id="paperLongBtn" onclick="paperSetDirection('long')">买入/做多</button>
+                  <button class="paper-side short" id="paperShortBtn" onclick="paperSetDirection('short')">卖出/做空</button>
+                </div>
+                <div class="paper-form-grid">
+                  <label>仓位 USDT<input class="paper-input" id="paperNotional" type="number" value="1000" min="1" step="100"></label>
+                  <label>杠杆<input class="paper-input" id="paperLeverage" type="number" value="10" min="1" max="125" step="1"></label>
+                  <label>入场价<input class="paper-input" id="paperEntryPrice" type="number" placeholder="默认当前价" step="0.01"></label>
+                  <label>止盈价<input class="paper-input" id="paperTakeProfit" type="number" placeholder="可选" step="0.01"></label>
+                  <label>止损价<input class="paper-input" id="paperStopLoss" type="number" placeholder="可选" step="0.01"></label>
+                </div>
+                <button class="paper-submit long" id="paperSubmitBtn" onclick="paperSubmitOrder()">模拟开仓</button>
+              </div>
+              <div class="paper-table-card">
+                <div class="paper-section-head">
+                  <span>当前持仓</span>
+                  <button class="paper-link-btn" onclick="paperCloseAll()">清仓</button>
+                </div>
+                <div id="paperPositions"></div>
+              </div>
+            </div>
+          </div>
+          <div class="paper-terminal-pane" data-paper-pane="openOrders">
+            <div class="paper-empty">暂无当前委托，模拟交易目前使用市价成交。</div>
+          </div>
+          <div class="paper-terminal-pane" data-paper-pane="orderHistory">
+            <div class="paper-empty">暂无历史委托，后续可扩展限价单和条件单。</div>
+          </div>
+          <div class="paper-terminal-pane" data-paper-pane="fills">
+            <div id="paperFills"></div>
+          </div>
+          <div class="paper-terminal-pane" data-paper-pane="ledger">
+            <div id="paperLedger"></div>
+          </div>
+          <div class="paper-terminal-pane" data-paper-pane="positionHistory">
+            <div id="paperPositionHistory"></div>
+          </div>
+          <div class="paper-terminal-pane" data-paper-pane="bot">
+            <div class="paper-empty">机器人模块暂未启用。当前信号仍在右侧 Quant 面板辅助决策。</div>
+          </div>
+          <div class="paper-terminal-pane" data-paper-pane="assets">
+            <div class="paper-assets-grid">
+              <div class="paper-metric major"><span>总权益</span><b id="paperEquity">--</b></div>
+              <div class="paper-metric"><span>可用余额</span><b id="paperAvailable">--</b></div>
+              <div class="paper-metric"><span>未实现盈亏</span><b id="paperUnrealized">--</b></div>
+              <div class="paper-metric"><span>已实现盈亏</span><b id="paperRealized">--</b></div>
+              <div class="paper-metric"><span>总收益率</span><b id="paperReturnPct">--</b></div>
+            </div>
+            <div class="paper-account-row">
+              <input class="paper-input" id="paperInitialBalance" type="number" min="1" step="100" placeholder="初始资产 USDT">
+              <input class="paper-input" id="paperAvailableBalance" type="number" min="0" step="100" placeholder="可用余额 USDT">
+              <button class="paper-mini-btn" onclick="paperSaveAccount()">设置资产</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     <!-- End Chart Area -->
 
@@ -221,69 +296,6 @@
 
         <!-- Risk -->
         <div id="riskArea"></div>
-
-        <!-- Paper Trading -->
-        <div class="collapsible open" id="paperTradingCollapsible">
-          <div class="collapsible-head" onclick="toggleCollapsible('paperTradingCollapsible')">
-            <span class="collapsible-title">模拟交易</span>
-            <span class="collapsible-arrow">▶</span>
-          </div>
-          <div class="collapsible-body">
-            <div class="paper-box" id="paperBox">
-              <div class="paper-topline">
-                <span>SKHYNIXUSDT Perp</span>
-                <span id="paperMarkPrice">--</span>
-              </div>
-              <div class="paper-equity-grid">
-                <div class="paper-metric major">
-                  <span>总权益</span>
-                  <b id="paperEquity">--</b>
-                </div>
-                <div class="paper-metric">
-                  <span>可用</span>
-                  <b id="paperAvailable">--</b>
-                </div>
-                <div class="paper-metric">
-                  <span>未实现</span>
-                  <b id="paperUnrealized">--</b>
-                </div>
-                <div class="paper-metric">
-                  <span>已实现</span>
-                  <b id="paperRealized">--</b>
-                </div>
-              </div>
-              <div class="paper-account-row">
-                <input class="paper-input" id="paperInitialBalance" type="number" min="1" step="100" placeholder="初始资产 USDT">
-                <input class="paper-input" id="paperAvailableBalance" type="number" min="0" step="100" placeholder="可用余额 USDT">
-                <button class="paper-mini-btn" onclick="paperSaveAccount()">设置资产</button>
-              </div>
-              <div class="paper-order-card">
-                <div class="paper-side-tabs">
-                  <button class="paper-side active long" id="paperLongBtn" onclick="paperSetDirection('long')">买入/做多</button>
-                  <button class="paper-side short" id="paperShortBtn" onclick="paperSetDirection('short')">卖出/做空</button>
-                </div>
-                <div class="paper-form-grid">
-                  <label>仓位 USDT<input class="paper-input" id="paperNotional" type="number" value="1000" min="1" step="100"></label>
-                  <label>杠杆<input class="paper-input" id="paperLeverage" type="number" value="10" min="1" max="125" step="1"></label>
-                  <label>入场价<input class="paper-input" id="paperEntryPrice" type="number" placeholder="默认当前价" step="0.01"></label>
-                  <label>止盈价<input class="paper-input" id="paperTakeProfit" type="number" placeholder="可选" step="0.01"></label>
-                  <label>止损价<input class="paper-input" id="paperStopLoss" type="number" placeholder="可选" step="0.01"></label>
-                </div>
-                <button class="paper-submit long" id="paperSubmitBtn" onclick="paperSubmitOrder()">模拟开仓</button>
-              </div>
-              <div class="paper-section-head">
-                <span>当前持仓</span>
-                <button class="paper-link-btn" onclick="paperCloseAll()">清仓</button>
-              </div>
-              <div id="paperPositions"></div>
-              <div class="paper-section-head">
-                <span>成交结算</span>
-                <span id="paperReturnPct">--</span>
-              </div>
-              <div id="paperFills"></div>
-            </div>
-          </div>
-        </div>
 
         <!-- Factors -->
         <div class="collapsible open" id="factorsCollapsible">

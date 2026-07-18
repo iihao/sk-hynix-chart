@@ -40,6 +40,7 @@ import {
   paperSaveAccount,
   paperSetDirection,
   paperSubmitOrder,
+  paperSwitchTab,
   updatePaperTrading,
 } from './paper-trading.js';
 
@@ -868,3 +869,4 @@ window.paperSaveAccount = paperSaveAccount;
 window.paperSubmitOrder = paperSubmitOrder;
 window.paperClosePosition = paperClosePosition;
 window.paperCloseAll = paperCloseAll;
+window.paperSwitchTab = paperSwitchTab;

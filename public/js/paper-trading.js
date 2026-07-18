@@ -3,6 +3,7 @@ import { $ } from './utils.js';
 const paperState = {
   direction: 'long',
   lastSummary: null,
+  activeTab: 'positions',
 };
 
 function usd(value, digits = 2) {
@@ -111,6 +112,59 @@ function renderFills(fills = []) {
   }
 }
 
+function renderLedger(fills = []) {
+  const box = $('paperLedger');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!fills.length) {
+    const empty = document.createElement('div');
+    empty.className = 'paper-empty';
+    empty.textContent = '暂无资金流水';
+    box.appendChild(empty);
+    return;
+  }
+  for (const fill of fills.slice(0, 20)) {
+    const row = document.createElement('div');
+    row.className = `paper-fill ${tone(fill.realizedPnl)}`;
+    const time = new Date(Number(fill.createdAt) * 1000).toLocaleTimeString('zh-CN', { hour12: false });
+    row.innerHTML = `
+      <span>${time}</span>
+      <b>${fill.reason}</b>
+      <span>手续费 ${usd(fill.fee)}</span>
+      <span>余额 ${usd(fill.balanceAfter)}</span>
+      <span>${usd(fill.realizedPnl)}</span>
+    `;
+    box.appendChild(row);
+  }
+}
+
+function renderPositionHistory(fills = []) {
+  const box = $('paperPositionHistory');
+  if (!box) return;
+  const closed = fills.filter((fill) => fill.type !== 'OPEN');
+  box.innerHTML = '';
+  if (!closed.length) {
+    const empty = document.createElement('div');
+    empty.className = 'paper-empty';
+    empty.textContent = '暂无仓位历史记录';
+    box.appendChild(empty);
+    return;
+  }
+  for (const fill of closed.slice(0, 20)) {
+    const row = document.createElement('div');
+    row.className = `paper-fill ${tone(fill.realizedPnl)}`;
+    const time = new Date(Number(fill.createdAt) * 1000).toLocaleString('zh-CN', { hour12: false });
+    row.innerHTML = `
+      <span>${time}</span>
+      <b>${fill.type}</b>
+      <span>${fill.direction.toUpperCase()}</span>
+      <span>${Number(fill.quantity).toFixed(4)} @${Number(fill.price).toFixed(2)}</span>
+      <span>${usd(fill.realizedPnl)}</span>
+    `;
+    box.appendChild(row);
+  }
+}
+
 function renderPaper(summary) {
   paperState.lastSummary = summary;
   const account = summary.account || {};
@@ -123,6 +177,7 @@ function renderPaper(summary) {
   setTone('paperUnrealized', account.unrealizedPnl);
   setTone('paperRealized', account.realizedPnl);
   setTone('paperReturnPct', account.totalReturnPct);
+  setText('paperPositionCount', String((summary.positions || []).length));
 
   const initial = $('paperInitialBalance');
   const available = $('paperAvailableBalance');
@@ -130,6 +185,18 @@ function renderPaper(summary) {
   if (available && !available.value) available.value = Number(account.availableBalance || 0).toFixed(0);
   renderPositions(summary.positions || []);
   renderFills(summary.fills || []);
+  renderLedger(summary.fills || []);
+  renderPositionHistory(summary.fills || []);
+}
+
+export function paperSwitchTab(tab) {
+  paperState.activeTab = tab || 'positions';
+  document.querySelectorAll('.paper-terminal-tab').forEach((button) => {
+    button.classList.toggle('active', button.dataset.paperTab === paperState.activeTab);
+  });
+  document.querySelectorAll('.paper-terminal-pane').forEach((pane) => {
+    pane.classList.toggle('active', pane.dataset.paperPane === paperState.activeTab);
+  });
 }
 
 export async function updatePaperTrading() {
