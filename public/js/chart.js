@@ -1,4 +1,9 @@
 import { state, BN, convertP, fmtPrice, getLabels, $ } from './utils.js';
+import {
+  formatBeijingCrosshairTime,
+  formatBeijingOhlcTime,
+  formatBeijingTickTime,
+} from './chart-time.mjs';
 
 /* ── Chart Factory ── */
 export function makeChart(containerId, tf) {
@@ -33,18 +38,14 @@ export function makeChart(containerId, tf) {
       borderColor: BN.border,
       scaleMargins: { top: 0.05, bottom: 0.2 },
     },
+    localization: {
+      timeFormatter: formatBeijingCrosshairTime,
+    },
     timeScale: {
       borderColor: BN.border,
       timeVisible: true,
       secondsVisible: false,
-      tickMarkFormatter: (time) => {
-        const d = new Date(time * 1000 + 8 * 3600000); // Beijing time (UTC+8)
-        return (
-          String(d.getUTCHours()).padStart(2, '0') +
-          ':' +
-          String(d.getUTCMinutes()).padStart(2, '0')
-        );
-      },
+      tickMarkFormatter: formatBeijingTickTime,
     },
     handleScroll: { vertTouchDrag: false },
   });
@@ -103,12 +104,7 @@ export function makeChart(containerId, tf) {
     const L = getLabels();
     let html = '';
 
-    // Show time (UTC+8)
-    const time = new Date(param.time * 1000 + 8 * 3600000);
-    const hh = String(time.getUTCHours()).padStart(2, '0');
-    const mm = String(time.getUTCMinutes()).padStart(2, '0');
-    const dateStr = `${time.getUTCMonth()+1}/${time.getUTCDate()}`;
-    html += `<span style="color:#848e9c"><span class="lbl">时间</span><b>${dateStr} ${hh}:${mm}</b></span>`;
+    html += `<span style="color:#848e9c"><span class="lbl">时间</span><b>${formatBeijingOhlcTime(param.time)}</b></span>`;
 
     if (d && state.currentSource !== 'naver') {
       const c = state.stealthMode
