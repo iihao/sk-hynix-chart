@@ -89,7 +89,7 @@
   opacity: 1;
   width: 22px;
 }
-.signal-panel:not(.collapsed) ~ .signal-expand-strip { display: none; }
+body.signal-panel-open .signal-expand-strip { display: none; }
 
 /* ── Collapsible ── */
 .collapsible { 
@@ -720,5 +720,8 @@ body.wide-mode .collapsible-head {
   .signal-panel { 
     width: 280px; 
     transform: translateX(280px); 
+  }
+  .signal-panel.open {
+    transform: translateX(0);
   }
 }
