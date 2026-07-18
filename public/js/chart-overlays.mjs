@@ -41,3 +41,13 @@ export function lineFromBinance(frame, { toCurrency, krwUsdRate }) {
     krwUsdRate,
   });
 }
+
+export function latestVisibleRange(candles, visibleBars) {
+  if (!Array.isArray(candles) || candles.length === 0) return null;
+  const bars = Math.max(1, Number(visibleBars) || 120);
+  const fromIndex = Math.max(0, candles.length - bars);
+  const from = Number(candles[fromIndex]?.time);
+  const to = Number(candles[candles.length - 1]?.time);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+  return { from, to };
+}

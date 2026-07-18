@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   convertSeriesPrice,
   getVisibleOverlaySources,
+  latestVisibleRange,
   lineFromCandles,
 } from '../public/js/chart-overlays.mjs';
 
@@ -30,4 +31,10 @@ test('builds overlay line data from candles', () => {
     {time: 1, value: 1200},
     {time: 2, value: 1201},
   ]);
+});
+
+test('computes a visible range anchored to the latest candle', () => {
+  const candles = Array.from({ length: 5 }, (_, index) => ({ time: 100 + index * 60, close: 1800000 }));
+
+  assert.deepEqual(latestVisibleRange(candles, 3), { from: 220, to: 340 });
 });

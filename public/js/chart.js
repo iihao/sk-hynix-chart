@@ -6,6 +6,7 @@ import {
 } from './chart-time.mjs';
 import {
   getVisibleOverlaySources,
+  latestVisibleRange,
   lineFromBinance,
   lineFromCandles,
 } from './chart-overlays.mjs';
@@ -288,21 +289,19 @@ export function pushData(tf, data, bnData, overlayData = {}) {
   const ld = $('load-' + tf);
   if (ld) ld.classList.add('hide');
 
-  // Set visible range after data is loaded
-  const shouldFrame = !c.initialFramed || c.pendingFrame;
-  if (shouldFrame) {
-    const visibleBars = TF_VISIBLE[tf] || 120;
-    const allData = data?.candles || sourceFrame('naver')?.candles || sourceFrame('yahoo')?.candles || bnData?.candles || [];
-    if (allData.length > visibleBars) {
-      const from = allData[allData.length - visibleBars].time;
-      const to = allData[allData.length - 1].time;
-      c.chart.timeScale().setVisibleRange({ from, to });
-    } else {
-      c.chart.timeScale().fitContent();
-    }
-    c.initialFramed = true;
-    c.pendingFrame = false;
+  // Keep the trading view anchored to the newest market data. Without this,
+  // SSE updates append fresh Naver/Binance points while the viewport remains
+  // parked at the first-loaded right edge, which looks like the NV line stopped.
+  const visibleBars = TF_VISIBLE[tf] || 120;
+  const allData = data?.candles || sourceFrame('naver')?.candles || sourceFrame('yahoo')?.candles || bnData?.candles || [];
+  const range = latestVisibleRange(allData, visibleBars);
+  if (range) {
+    c.chart.timeScale().setVisibleRange(range);
+  } else if (!c.initialFramed || c.pendingFrame) {
+    c.chart.timeScale().fitContent();
   }
+  c.initialFramed = true;
+  c.pendingFrame = false;
 }
 
 export function resetChartFraming() {
