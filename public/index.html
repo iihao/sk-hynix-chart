@@ -231,129 +231,133 @@
         </div>
       </div>
       <div class="signal-body" id="signalBody">
-        <!-- Direction Dashboard -->
-        <div class="collapsible open" id="dirDashCollapsible">
-          <div class="collapsible-head" onclick="toggleCollapsible('dirDashCollapsible')">
-            <span class="collapsible-title">方向趋势</span>
-            <span class="collapsible-arrow">▶</span>
+        <div class="signal-column sb-col1">
+          <!-- Direction Dashboard -->
+          <div class="collapsible open" id="dirDashCollapsible">
+            <div class="collapsible-head" onclick="toggleCollapsible('dirDashCollapsible')">
+              <span class="collapsible-title">方向趋势</span>
+              <span class="collapsible-arrow">▶</span>
+            </div>
+            <div class="collapsible-body">
+              <div class="dir-dash" id="dirDash">
+                <div class="dir-help" id="dirHelp">?</div>
+                <div class="gauge-wrap">
+                  <svg class="gauge-svg" width="120" height="72" viewBox="0 0 120 72">
+                    <path d="M10,65 A50,50 0 0,1 30,25" stroke="var(--red)" stroke-width="7" fill="none" opacity="0.8"/>
+                    <path d="M30,25 A50,50 0 0,1 90,25" stroke="var(--yellow)" stroke-width="7" fill="none" opacity="0.8"/>
+                    <path d="M90,25 A50,50 0 0,1 110,65" stroke="var(--green)" stroke-width="7" fill="none" opacity="0.8"/>
+                    <path id="gaugeArc" d="" stroke-width="8" fill="none" stroke-linecap="round" opacity="0.5"/>
+                    <g id="gaugeNeedle" transform="rotate(0, 60, 65)">
+                      <line x1="60" y1="65" x2="60" y2="24" stroke="var(--text-bright)" stroke-width="2" stroke-linecap="round"/>
+                      <circle cx="60" cy="65" r="4" fill="var(--text-bright)"/>
+                    </g>
+                    <text x="8" y="70" font-size="7" fill="var(--text)" opacity="0.5">做空</text>
+                    <text x="52" y="8" font-size="7" fill="var(--text)" opacity="0.5">观望</text>
+                    <text x="98" y="70" font-size="7" fill="var(--text)" opacity="0.5">做多</text>
+                  </svg>
+                </div>
+                <div class="dir-text" id="dirText">分析中</div>
+                <div class="dir-vals">
+                  <div class="dir-val-item">
+                    <span class="dir-val-label">评分</span>
+                    <span class="dir-score" id="dirScore">--</span>
+                  </div>
+                  <div class="dir-val-sep"></div>
+                  <div class="dir-val-item">
+                    <span class="dir-val-label">置信度</span>
+                    <span class="dir-score" id="dirConf">--%</span>
+                  </div>
+                </div>
+                <div class="dir-reason" id="dirReason">加载中...</div>
+              </div>
+            </div>
           </div>
-          <div class="collapsible-body">
-            <div class="dir-dash" id="dirDash">
-              <div class="dir-help" id="dirHelp">?</div>
-              <div class="gauge-wrap">
-                <svg class="gauge-svg" width="120" height="72" viewBox="0 0 120 72">
-                  <path d="M10,65 A50,50 0 0,1 30,25" stroke="var(--red)" stroke-width="7" fill="none" opacity="0.8"/>
-                  <path d="M30,25 A50,50 0 0,1 90,25" stroke="var(--yellow)" stroke-width="7" fill="none" opacity="0.8"/>
-                  <path d="M90,25 A50,50 0 0,1 110,65" stroke="var(--green)" stroke-width="7" fill="none" opacity="0.8"/>
-                  <path id="gaugeArc" d="" stroke-width="8" fill="none" stroke-linecap="round" opacity="0.5"/>
-                  <g id="gaugeNeedle" transform="rotate(0, 60, 65)">
-                    <line x1="60" y1="65" x2="60" y2="24" stroke="var(--text-bright)" stroke-width="2" stroke-linecap="round"/>
-                    <circle cx="60" cy="65" r="4" fill="var(--text-bright)"/>
-                  </g>
-                  <text x="8" y="70" font-size="7" fill="var(--text)" opacity="0.5">做空</text>
-                  <text x="52" y="8" font-size="7" fill="var(--text)" opacity="0.5">观望</text>
-                  <text x="98" y="70" font-size="7" fill="var(--text)" opacity="0.5">做多</text>
-                </svg>
-              </div>
-              <div class="dir-text" id="dirText">分析中</div>
-              <div class="dir-vals">
-                <div class="dir-val-item">
-                  <span class="dir-val-label">评分</span>
-                  <span class="dir-score" id="dirScore">--</span>
-                </div>
-                <div class="dir-val-sep"></div>
-                <div class="dir-val-item">
-                  <span class="dir-val-label">置信度</span>
-                  <span class="dir-score" id="dirConf">--%</span>
-                </div>
-              </div>
-              <div class="dir-reason" id="dirReason">加载中...</div>
+
+          <!-- Strategy -->
+          <div class="collapsible open" id="stratSection" style="display:none;">
+            <div class="collapsible-head" onclick="toggleCollapsible('stratSection')">
+              <span class="collapsible-title">操作建议</span>
+              <span class="collapsible-arrow">▶</span>
+            </div>
+            <div class="collapsible-body">
+              <div id="stratCard"></div>
+            </div>
+          </div>
+
+          <!-- Risk -->
+          <div id="riskArea"></div>
+
+          <!-- Market Context -->
+          <div class="collapsible" id="contextCollapsible">
+            <div class="collapsible-head" onclick="toggleCollapsible('contextCollapsible')">
+              <span class="collapsible-title">市场环境</span>
+              <span class="collapsible-arrow">▶</span>
+            </div>
+            <div class="collapsible-body">
+              <div id="marketContextArea"></div>
             </div>
           </div>
         </div>
 
-        <!-- Market Context -->
-        <div class="collapsible" id="contextCollapsible">
-          <div class="collapsible-head" onclick="toggleCollapsible('contextCollapsible')">
-            <span class="collapsible-title">市场环境</span>
-            <span class="collapsible-arrow">▶</span>
+        <div class="signal-column sb-col2">
+          <!-- Factors -->
+          <div class="collapsible open" id="factorsCollapsible">
+            <div class="collapsible-head" onclick="toggleCollapsible('factorsCollapsible')">
+              <span class="collapsible-title">多空因素</span>
+              <span class="collapsible-arrow">▶</span>
+            </div>
+            <div class="collapsible-body">
+              <div id="factorTags"></div>
+              <div id="factorCoverage"></div>
+              <div id="basisArea"></div>
+            </div>
           </div>
-          <div class="collapsible-body">
-            <div id="marketContextArea"></div>
-          </div>
-        </div>
 
-        <!-- Strategy -->
-        <div class="collapsible open" id="stratSection" style="display:none;">
-          <div class="collapsible-head" onclick="toggleCollapsible('stratSection')">
-            <span class="collapsible-title">操作建议</span>
-            <span class="collapsible-arrow">▶</span>
+          <!-- Signals -->
+          <div class="collapsible open" id="signalsCollapsible">
+            <div class="collapsible-head" onclick="toggleCollapsible('signalsCollapsible')">
+              <span class="collapsible-title">信号</span>
+              <span class="collapsible-arrow">▶</span>
+            </div>
+            <div class="collapsible-body" id="signalsContainer"></div>
           </div>
-          <div class="collapsible-body">
-            <div id="stratCard"></div>
-          </div>
-        </div>
 
-        <!-- Risk -->
-        <div id="riskArea"></div>
-
-        <!-- Factors -->
-        <div class="collapsible open" id="factorsCollapsible">
-          <div class="collapsible-head" onclick="toggleCollapsible('factorsCollapsible')">
-            <span class="collapsible-title">多空因素</span>
-            <span class="collapsible-arrow">▶</span>
-          </div>
-          <div class="collapsible-body">
-            <div id="factorTags"></div>
-            <div id="factorCoverage"></div>
-            <div id="basisArea"></div>
-          </div>
-        </div>
-
-        <!-- Signals -->
-        <div class="collapsible open" id="signalsCollapsible">
-          <div class="collapsible-head" onclick="toggleCollapsible('signalsCollapsible')">
-            <span class="collapsible-title">信号</span>
-            <span class="collapsible-arrow">▶</span>
-          </div>
-          <div class="collapsible-body" id="signalsContainer"></div>
-        </div>
-
-        <!-- Backtest -->
-        <div class="collapsible" id="btCollapsible">
-          <div class="collapsible-head" onclick="toggleCollapsible('btCollapsible')">
-            <span class="collapsible-title">回测</span>
-            <span class="collapsible-arrow">▶</span>
-          </div>
-          <div class="collapsible-body">
-            <div class="bt-box" id="btBox">
-              <div class="bt-header">
-                <button class="bt-run-btn" id="btRunBtn" onclick="runBacktest()">回测</button>
-                <button class="bt-run-btn" id="btOptBtn" onclick="runBacktest(true)" style="background:rgba(14,203,129,0.12);border-color:rgba(14,203,129,0.3);color:var(--green)">优化</button>
+          <!-- Backtest -->
+          <div class="collapsible" id="btCollapsible">
+            <div class="collapsible-head" onclick="toggleCollapsible('btCollapsible')">
+              <span class="collapsible-title">回测</span>
+              <span class="collapsible-arrow">▶</span>
+            </div>
+            <div class="collapsible-body">
+              <div class="bt-box" id="btBox">
+                <div class="bt-header">
+                  <button class="bt-run-btn" id="btRunBtn" onclick="runBacktest()">回测</button>
+                  <button class="bt-run-btn" id="btOptBtn" onclick="runBacktest(true)" style="background:rgba(14,203,129,0.12);border-color:rgba(14,203,129,0.3);color:var(--green)">优化</button>
+                </div>
+                <div class="bt-params">
+                  <div class="bt-param">
+                    <span class="bt-param-label">阈值</span>
+                    <input class="bt-param-input" id="btThreshold" type="number" value="2.0" step="0.5" min="0.5" max="8">
+                  </div>
+                  <div class="bt-param">
+                    <span class="bt-param-label">持仓</span>
+                    <input class="bt-param-input" id="btHold" type="number" value="12" step="1" min="3" max="50">
+                  </div>
+                  <div class="bt-param">
+                    <span class="bt-param-label">止损%</span>
+                    <input class="bt-param-input" id="btSL" type="number" value="3.0" step="0.5" min="1" max="10">
+                  </div>
+                  <div class="bt-param">
+                    <span class="bt-param-label">止盈%</span>
+                    <input class="bt-param-input" id="btTP" type="number" value="5.0" step="0.5" min="1" max="15">
+                  </div>
+                </div>
+                <div id="btMetricsArea"></div>
+                <div id="btWeightsArea"></div>
+                <div id="btEquityArea"></div>
+                <div id="btContextArea"></div>
+                <div id="btTradesArea"></div>
               </div>
-              <div class="bt-params">
-                <div class="bt-param">
-                  <span class="bt-param-label">阈值</span>
-                  <input class="bt-param-input" id="btThreshold" type="number" value="2.0" step="0.5" min="0.5" max="8">
-                </div>
-                <div class="bt-param">
-                  <span class="bt-param-label">持仓</span>
-                  <input class="bt-param-input" id="btHold" type="number" value="12" step="1" min="3" max="50">
-                </div>
-                <div class="bt-param">
-                  <span class="bt-param-label">止损%</span>
-                  <input class="bt-param-input" id="btSL" type="number" value="3.0" step="0.5" min="1" max="10">
-                </div>
-                <div class="bt-param">
-                  <span class="bt-param-label">止盈%</span>
-                  <input class="bt-param-input" id="btTP" type="number" value="5.0" step="0.5" min="1" max="15">
-                </div>
-              </div>
-              <div id="btMetricsArea"></div>
-              <div id="btWeightsArea"></div>
-              <div id="btEquityArea"></div>
-              <div id="btContextArea"></div>
-              <div id="btTradesArea"></div>
             </div>
           </div>
         </div>

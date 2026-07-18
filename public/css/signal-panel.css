@@ -54,6 +54,9 @@
   overflow-x: hidden;
   padding: 8px 10px;
 }
+.signal-column {
+  min-width: 0;
+}
 .signal-body::-webkit-scrollbar { width: 3px; }
 .signal-body::-webkit-scrollbar-track { background: transparent; }
 .signal-body::-webkit-scrollbar-thumb { 
@@ -1248,6 +1251,12 @@ body.wide-mode .signal-body {
   padding: 10px 12px;
   overflow-y: auto;
   align-content: start;
+}
+body.wide-mode .signal-column {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 body.wide-mode .sb-col1 { overflow: visible; }
 body.wide-mode .sb-col2 { 
