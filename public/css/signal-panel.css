@@ -653,6 +653,149 @@ body.signal-panel-open .signal-expand-strip { display: none; }
 }
 .bt-context.warn { color: var(--yellow); }
 
+/* ── Backtest Sections ── */
+.bt-section {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.04);
+}
+.bt-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+/* ── Backtest Metrics Colors ── */
+.bt-metric-val.profit { color: var(--green); }
+.bt-metric-val.loss { color: var(--red); }
+
+/* ── Weights Grid ── */
+.bt-weights-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+.bt-weight-chip {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 6px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 4px;
+  font-size: 9px;
+  border: 1px solid rgba(255,255,255,0.04);
+}
+.bt-weight-chip span:first-child { color: var(--text); }
+.bt-weight-chip span:last-child { color: var(--text-bright); font-family: 'JetBrains Mono', monospace; }
+
+/* ── Analysis Rows ── */
+.bt-analysis-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 6px;
+  font-size: 9px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.bt-analysis-row:last-child { border-bottom: none; }
+.bt-analysis-name { color: var(--text-bright); flex: 1; }
+.bt-analysis-corr { 
+  font-family: 'JetBrains Mono', monospace; 
+  min-width: 50px;
+  text-align: center;
+}
+.bt-analysis-corr.bull { color: var(--green); }
+.bt-analysis-corr.bear { color: var(--red); }
+.bt-analysis-sug { 
+  color: var(--yellow); 
+  font-family: 'JetBrains Mono', monospace;
+  min-width: 40px;
+  text-align: right;
+}
+.bt-analysis-win {
+  font-family: 'JetBrains Mono', monospace;
+  min-width: 40px;
+  text-align: center;
+}
+.bt-analysis-win.bull { color: var(--green); }
+.bt-analysis-win.bear { color: var(--red); }
+.bt-analysis-action {
+  min-width: 30px;
+  text-align: right;
+  font-size: 8px;
+}
+.bt-analysis-action.bear { color: var(--red); }
+
+/* ── Improvements ── */
+.bt-improvement {
+  font-size: 9px;
+  padding: 3px 0;
+  color: var(--yellow);
+  line-height: 1.4;
+}
+
+/* ── Comparison ── */
+.bt-comparison {
+  background: rgba(255,255,255,0.02);
+  border-radius: 6px;
+  padding: 8px;
+  border: 1px solid rgba(255,255,255,0.04);
+}
+.bt-comp-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  padding: 3px 0;
+  font-family: 'JetBrains Mono', monospace;
+}
+.bt-comp-row span:first-child { color: var(--text); }
+.bt-comp-row .profit { color: var(--green); }
+.bt-comp-row .loss { color: var(--red); }
+
+/* ── Trade Rows ── */
+.bt-trade {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  font-size: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  font-family: 'JetBrains Mono', monospace;
+}
+.bt-trade:last-child { border-bottom: none; }
+.bt-trade.profit { color: var(--green); }
+.bt-trade.loss { color: var(--red); }
+.bt-trade-dir {
+  font-size: 9px;
+  font-weight: 600;
+  min-width: 16px;
+}
+.bt-trade.profit .bt-trade-dir { color: var(--green); }
+.bt-trade.loss .bt-trade-dir { color: var(--red); }
+.bt-trade-price {
+  color: var(--text-bright);
+  font-size: 10px;
+}
+.bt-trade-arrow {
+  color: var(--text);
+  opacity: 0.5;
+  font-size: 8px;
+}
+.bt-trade-pnl {
+  font-weight: 600;
+  min-width: 50px;
+  text-align: right;
+}
+.bt-trade-reason {
+  font-size: 8px;
+  color: var(--text);
+  opacity: 0.6;
+  min-width: 30px;
+  text-align: right;
+}
+
 /* ── Risk Box ── */
 .risk-box { 
   padding: 8px 10px; 
