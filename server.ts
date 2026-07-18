@@ -1408,19 +1408,38 @@ app.get('/api/indicators', (req, res) => {
   try {
     const { tf, rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
     const now = Math.floor(Date.now() / 1000);
-    const ticks = selectRange.all(now - rangeSec, now) as TickData[];
     
-    if (ticks.length < 2) {
-      return res.json({ rsi: [], macd: { dif: [], dea: [], histogram: [] }, bollinger: { upper: [], mid: [], lower: [] }, ma5: [], ma20: [], volRatio: [], latest: null, signals: [], support: [], resistance: [], times: [] });
+    // Get Binance data as primary source
+    const binanceTicks = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
+    const binanceCandles = binanceTicks.length >= 10 
+      ? buildBinanceCandlesFromTicks(binanceTicks, intervalSec) 
+      : [];
+    
+    // Get Naver data as fallback
+    const naverTicks = selectRange.all(now - rangeSec, now) as TickData[];
+    const naverCandles = naverTicks.length >= 10 
+      ? buildCandlesFromTicks(naverTicks, intervalSec) 
+      : [];
+    
+    // Primary: Binance, Fallback: Naver
+    const candles = binanceCandles.length >= 10 ? binanceCandles : naverCandles;
+    const dataSource = binanceCandles.length >= 10 ? 'binance' : 'naver';
+    
+    if (candles.length < 2) {
+      return res.json({ 
+        rsi: [], macd: { dif: [], dea: [], histogram: [] }, 
+        bollinger: { upper: [], mid: [], lower: [] }, 
+        ma5: [], ma20: [], volRatio: [], 
+        latest: null, signals: [], support: [], resistance: [], 
+        times: [], dataSource 
+      });
     }
     
-    const candles = buildCandlesFromTicks(ticks, intervalSec);
     const result = calculateAllIndicators(candles);
     
-    // Get Binance candles for support/resistance
-    const binanceTicks = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
-    const binanceCandles = buildBinanceCandlesFromTicks(binanceTicks, intervalSec);
+    // Get support/resistance from both sources
     const binanceSR = binanceCandles.length >= 20 ? findSupportResistance(binanceCandles) : { support: [], resistance: [] };
+    const naverSR = naverCandles.length >= 20 ? findSupportResistance(naverCandles) : { support: [], resistance: [] };
     
     const levels = buildLevelGroups({
       spot: { support: result.support, resistance: result.resistance },
@@ -1435,6 +1454,7 @@ app.get('/api/indicators', (req, res) => {
     
     res.json({
       tf,
+      dataSource,
       rsi: result.rsi,
       macd: result.macd,
       bollinger: result.bollinger,
@@ -2001,20 +2021,36 @@ app.get('/api/factors', (req, res) => {
   try {
     const { tf, rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
     const now = Math.floor(Date.now() / 1000);
-    const ticks = selectRange.all(now - rangeSec, now) as TickData[];
     
-    if (ticks.length < 2) {
-      return res.json({ factors: [], composite: 0, direction: 'neutral', confidence: 0 });
-    }
-    
-    const candles = buildCandlesFromTicks(ticks, intervalSec);
-    const indicators = calculateAllIndicators(candles);
-    
-    // Get Binance data
+    // Get Binance data as primary source
+    const binanceTicks = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
     const binanceLatest = selectBinanceLatest.get();
     const binanceFreshness = binanceLatest
       ? classifyObservationAge({ nowSec: now, exchangeTs: (binanceLatest as any).ts, maxAgeSec: 120 })
       : { eligible: false, ageSec: null, quality: 'stale' as const };
+    
+    // Get Naver data as fallback
+    const naverTicks = selectRange.all(now - rangeSec, now) as TickData[];
+    
+    // Use Binance candles if available, otherwise fall back to Naver
+    const binanceCandles = binanceTicks.length >= 10 
+      ? buildBinanceCandlesFromTicks(binanceTicks, intervalSec) 
+      : [];
+    const naverCandles = naverTicks.length >= 10 
+      ? buildCandlesFromTicks(naverTicks, intervalSec) 
+      : [];
+    
+    // Primary: Binance, Fallback: Naver
+    const candles = binanceCandles.length >= 10 ? binanceCandles : naverCandles;
+    const dataSource = binanceCandles.length >= 10 ? 'binance' : 'naver';
+    
+    if (candles.length < 2) {
+      return res.json({ factors: [], composite: 0, direction: 'neutral', confidence: 0, dataSource });
+    }
+    
+    const indicators = calculateAllIndicators(candles);
+    
+    // Get sentiment data
     const sentimentRows = selectSentimentRange.all(now - rangeSec, now) as any[];
     const latestSentimentCandidate = sentimentRows[sentimentRows.length - 1];
     const sentimentFreshness = latestSentimentCandidate
@@ -2023,7 +2059,7 @@ app.get('/api/factors', (req, res) => {
     const latestSentiment = sentimentFreshness.eligible ? latestSentimentCandidate : undefined;
     const previousSentiment = sentimentFreshness.eligible ? sentimentRows[sentimentRows.length - 2] : undefined;
     
-    // Get Naver data
+    // Get price data
     const naverLatest = selectLatest.get();
     const naverPrice = naverLatest ? (naverLatest as any).price : 0;
     const binancePrice = binanceFreshness.eligible ? (binanceLatest as any).price : undefined;
@@ -2059,7 +2095,7 @@ app.get('/api/factors', (req, res) => {
       newsNegative: (newsSentiment as any).negative || 0,
       newsTopHeadline: newsSentiment.headlines?.[0] || '',
       weights: activeWeights,
-      hasRealVolume: false,
+      hasRealVolume: dataSource === 'binance',
     });
     
     // Calculate market context
@@ -2106,7 +2142,6 @@ app.get('/api/factors', (req, res) => {
     
     // Build basis snapshot
     const spotTicks = selectRange.all(now - 86400, now) as TickData[];
-    const binanceTicks = selectBinanceRange.all(now - 86400, now) as BinanceTickData[];
     const basisSeries = alignBasisSeries({ spotTicks: spotTicks as any, binanceTicks: binanceTicks as any, fxRate: krwUsdRate });
     const basis = computeBasisSnapshot(basisSeries);
     
@@ -2139,6 +2174,7 @@ app.get('/api/factors', (req, res) => {
 
     res.json({
       tf,
+      dataSource,
       ...result,
       strategy,
       marketContext: {

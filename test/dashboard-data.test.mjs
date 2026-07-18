@@ -17,7 +17,7 @@ test('normalizes indicator latest values', () => {
   assert.deepEqual(result, {
     rsi: 45, macdHist: 1.2, volRatio: 1.1, signals: [],
     support: [], resistance: [], levels: null, tf: null,
-    ma5: [], ma20: [], bollinger: null, times: [],
+    dataSource: 'unknown', ma5: [], ma20: [], bollinger: null, times: [],
   });
 });
 

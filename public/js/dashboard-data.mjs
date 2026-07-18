@@ -31,6 +31,7 @@ export function normalizeIndicators(payload) {
     resistance: Array.isArray(data.resistance) ? data.resistance : [],
     levels: data.levels && typeof data.levels === 'object' ? data.levels : null,
     tf: normalizeDashboardTf(data.tf),
+    dataSource: data.dataSource || 'unknown',
     // Pass through indicator arrays for chart overlay
     ma5: Array.isArray(data.ma5) ? data.ma5 : [],
     ma20: Array.isArray(data.ma20) ? data.ma20 : [],
@@ -52,6 +53,7 @@ export function normalizeFactors(payload) {
   const labels = { long: '做多', short: '做空', neutral: '中性' };
   return {
     factors: data.factors,
+    dataSource: data.dataSource || 'unknown',
     omittedFactors: Array.isArray(data.omittedFactors) ? data.omittedFactors : [],
     marketContext: data.marketContext && typeof data.marketContext === 'object'
       ? data.marketContext
