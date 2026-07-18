@@ -82,7 +82,7 @@ import {
   PaperFill,
   PaperDirection,
 } from './src/domain/paper-trading';
-import { buildSpotCandles, extendFlatCandlesToNow } from './src/domain/candles';
+import { buildContinuousSpotCandles, buildSpotCandles } from './src/domain/candles';
 import { canRecordSpotTick, classifyObservationAge } from './src/domain/market-quality';
 import { buildLevelGroups } from './src/domain/levels';
 import { createCircuitBreaker } from './src/infrastructure/circuit-breaker';
@@ -694,6 +694,17 @@ let lastAfterHours = null;
 
 // Record a spot tick only when Naver provides market or after-hours data.
 async function recordTick() {
+  if (!isSpotExternalSession()) {
+    const fallback = getBinanceKrwFallbackPrice();
+    const latest = selectLatest.get() as TickData | undefined;
+    const price = observedTickPrice(latest) || fallback;
+    markSourceHealthy('naver', {
+      updatedAt: Date.now(),
+      detail: price ? `休市延续 ₩${price.toLocaleString()}` : '休市等待本地/BN兜底',
+    });
+    return null;
+  }
+
   try {
     const basic = await naverBasic();
     const nowMs = Date.now();
@@ -743,14 +754,85 @@ function buildCandlesFromTicks(ticks: TickData[], intervalSec: number) {
   return buildSpotCandles(ticks, intervalSec);
 }
 
-async function naverChart(interval, range) {
-  const basic = await naverBasic();
+function isSpotExternalSession(): boolean {
+  return isMarketOpen() || isPreMarket() || isAfterHours();
+}
 
-  // Use cached after-hours when API stops returning it (after trading window closes)
+function observedTickPrice(tick: TickData | null | undefined): number | null {
+  if (!tick) return null;
+  const price = typeof tick.after_hours_price === 'number' ? tick.after_hours_price : tick.price;
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+function getBinanceKrwFallbackPrice(): number | null {
+  const latest = selectBinanceLatest.get() as BinanceTickData | undefined;
+  const price = latest?.mark_price || latest?.index_price || latest?.price;
+  if (!price || !Number.isFinite(price) || !Number.isFinite(krwUsdRate) || krwUsdRate <= 0) return null;
+  return Math.round(price * krwUsdRate);
+}
+
+async function resolveNaverBasicForSnapshot(): Promise<{ basic: NaverBasic | null; externalSkipped: boolean }> {
+  if (!isSpotExternalSession()) {
+    return { basic: null, externalSkipped: true };
+  }
+
+  const basic = await naverBasic();
   if (!basic.afterHours && lastAfterHours && !basic.marketOpen) {
     basic.afterHours = lastAfterHours;
   }
+  return { basic, externalSkipped: false };
+}
 
+function buildNaverTimeframeResult(input: {
+  basic: NaverBasic | null;
+  rangeSec: number;
+  intervalSec: number;
+  now: number;
+}) {
+  const ticks = selectRange.all(input.now - input.rangeSec, input.now) as TickData[];
+  const latest = selectLatest.get() as TickData | undefined;
+  const rawCandles = buildCandlesFromTicks(ticks, input.intervalSec);
+  const marketOpen = Boolean(input.basic?.marketOpen);
+  const afterHours = input.basic?.afterHours || null;
+  const apiPrice = input.basic
+    ? (!input.basic.marketOpen && input.basic.afterHours ? input.basic.afterHours.price : input.basic.price)
+    : null;
+  const localSpotPrice = rawCandles[rawCandles.length - 1]?.close || observedTickPrice(latest) || apiPrice;
+  const fallbackPrice = getBinanceKrwFallbackPrice();
+  const continuous = (!marketOpen && !afterHours)
+    ? buildContinuousSpotCandles({
+        candles: rawCandles,
+        nowSec: input.now,
+        intervalSec: input.intervalSec,
+        spotPrice: localSpotPrice,
+        fallbackPrice,
+      })
+    : { candles: rawCandles, source: 'spot-flat', price: localSpotPrice };
+  const displayPrice = afterHours?.price || continuous.price || apiPrice || fallbackPrice || 0;
+  const nowBucket = Math.floor(input.now / input.intervalSec) * input.intervalSec;
+  const candles = continuous.candles.length
+    ? continuous.candles
+    : [{ time: nowBucket, open: displayPrice, high: displayPrice, low: displayPrice, close: displayPrice, volume: 0, sampleCount: 0 }];
+
+  return {
+    source: 'naver',
+    candles,
+    meta: {
+      currency: 'KRW',
+      price: displayPrice,
+      previousClose: input.basic?.prevClose || latest?.prev_close || displayPrice,
+      exchangeName: 'KOSPI',
+      ...metaCommon(),
+      marketOpen,
+      tickCount: ticks.length,
+      afterHours,
+      synthetic: !marketOpen && !afterHours,
+      syntheticSource: continuous.source,
+    },
+  };
+}
+
+async function naverChart(interval, range) {
   // Determine time range and bucket size
   const now = Math.floor(Date.now() / 1000);
   let rangeSec, intervalSec;
@@ -762,30 +844,8 @@ async function naverChart(interval, range) {
     default:    rangeSec = 3*86400;   intervalSec = 60;
   }
 
-  const from = now - rangeSec;
-  const ticks = selectRange.all(from, now) as TickData[];
-  const rawCandles = buildCandlesFromTicks(ticks, intervalSec);
-
-  // Use after-hours price when market is closed but OTC is open
-  const displayPrice = (!basic.marketOpen && basic.afterHours) ? basic.afterHours.price : (basic as any).price;
-  const candles = !basic.marketOpen && !basic.afterHours
-    ? extendFlatCandlesToNow(rawCandles, {
-        nowSec: now,
-        intervalSec,
-        price: rawCandles[rawCandles.length - 1]?.close || displayPrice,
-      })
-    : rawCandles;
-
-  return {
-    source: 'naver',
-    candles: candles.length ? candles : [{ time: now, open: displayPrice, high: displayPrice, low: displayPrice, close: displayPrice, volume: 0 }],
-    meta: {
-      currency: 'KRW', price: displayPrice, previousClose: basic.prevClose,
-      exchangeName: 'KOSPI', ...metaCommon(), marketOpen: basic.marketOpen,
-      tickCount: ticks.length,
-      afterHours: basic.afterHours,
-    }
-  };
+  const { basic } = await resolveNaverBasicForSnapshot();
+  return buildNaverTimeframeResult({ basic, rangeSec, intervalSec, now });
 }
 
 // ══════════════════════════════════════════
@@ -1181,38 +1241,29 @@ async function binanceLine(interval: string, sharedMeta: BinanceMeta | null) {
 // ══════════════════════════════════════════
 const SOURCES = { yahoo: yahooChart, naver: naverChart };
 
+async function getNaverTimeframesOnly() {
+  const { basic, externalSkipped } = await resolveNaverBasicForSnapshot();
+  const now = Math.floor(Date.now() / 1000);
+  const makeResult = (rangeSec: number, intervalSec: number) => {
+    const result = buildNaverTimeframeResult({ basic, rangeSec, intervalSec, now });
+    if (externalSkipped) {
+      (result.meta as any).externalSkipped = true;
+    }
+    return result;
+  };
+  return {
+    m1: makeResult(3*86400, 60),      // 3天
+    m5: makeResult(7*86400, 300),      // 7天
+    m15: makeResult(30*86400, 900),    // 30天
+    h1: makeResult(90*86400, 3600),    // 90天
+  };
+}
+
 async function getAllTimeframes(source = 'yahoo') {
   let m1, m5, m15, h1;
 
   if (source === 'naver') {
-    // Call naverBasic() once, build all timeframes from SQLite ticks
-    const basic = await naverBasic();
-    // Use cached after-hours when API stops returning it
-    if (!basic.afterHours && lastAfterHours && !basic.marketOpen) {
-      basic.afterHours = lastAfterHours;
-    }
-    const now = Math.floor(Date.now() / 1000);
-  const displayPrice = (!basic.marketOpen && basic.afterHours) ? (basic.afterHours as any).price : (basic as any).price;
-    const makeResult = (rangeSec: number, intervalSec: number) => {
-      const ticks = selectRange.all(now - rangeSec, now) as TickData[];
-      const rawCandles = buildCandlesFromTicks(ticks, intervalSec);
-      const candles = !basic.marketOpen && !basic.afterHours
-        ? extendFlatCandlesToNow(rawCandles, {
-            nowSec: now,
-            intervalSec,
-            price: rawCandles[rawCandles.length - 1]?.close || displayPrice,
-          })
-        : rawCandles;
-      return {
-        source: 'naver',
-        candles: candles.length ? candles : [{ time: now, open: displayPrice, high: displayPrice, low: displayPrice, close: displayPrice, volume: 0 }],
-        meta: { currency: 'KRW', price: displayPrice, previousClose: basic.prevClose, exchangeName: 'KOSPI', ...metaCommon(), marketOpen: basic.marketOpen, tickCount: ticks.length, afterHours: basic.afterHours }
-      };
-    };
-    m1 = makeResult(3*86400, 60);      // 3天
-    m5 = makeResult(7*86400, 300);      // 7天
-    m15 = makeResult(30*86400, 900);    // 30天
-    h1 = makeResult(90*86400, 3600);    // 90天
+    ({ m1, m5, m15, h1 } = await getNaverTimeframesOnly());
   } else {
     // Yahoo source
     [m1, m5, m15, h1] = await Promise.all([
@@ -2809,8 +2860,10 @@ scheduler.setInterval(async () => {
     (binance as any).m1 = b1; (binance as any).m5 = b5; (binance as any).m15 = b15; (binance as any).h1 = bh;
     // Always update snapshot with latest Binance data
     for (const source of ['naver', 'yahoo']) {
-      let previous = lastSnapshotsBySource.get(source);
-      if (!previous) {
+      let previous = source === 'naver'
+        ? { ...(await getNaverTimeframesOnly()), source: 'naver', krwUsd: krwUsdRate, serverTime: Date.now(), binance: null }
+        : lastSnapshotsBySource.get(source);
+      if (!previous && source !== 'naver') {
         const fresh = await getAllTimeframes(source);
         cacheDashboardSnapshot(fresh);
         previous = lastSnapshotsBySource.get((fresh as any).source);

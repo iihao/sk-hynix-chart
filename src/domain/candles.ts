@@ -14,6 +14,8 @@ export interface SpotCandle {
   sampleCount: number;
 }
 
+export type ContinuousSpotSource = 'spot-flat' | 'binance-fallback' | 'none';
+
 function observedPrice(tick: SpotTickInput): number {
   return typeof tick.after_hours_price === 'number' ? tick.after_hours_price : tick.price;
 }
@@ -80,4 +82,46 @@ export function extendFlatCandlesToNow(
   }
 
   return result;
+}
+
+export function buildContinuousSpotCandles(input: {
+  candles: SpotCandle[];
+  nowSec: number;
+  intervalSec: number;
+  spotPrice?: number | null;
+  fallbackPrice?: number | null;
+}): { candles: SpotCandle[]; source: ContinuousSpotSource; price: number | null } {
+  const intervalSec = Math.max(1, Math.floor(input.intervalSec));
+  const fallbackPrice = typeof input.fallbackPrice === 'number' && Number.isFinite(input.fallbackPrice)
+    ? input.fallbackPrice
+    : null;
+
+  if (input.candles.length > 0) {
+    const candles = extendFlatCandlesToNow(input.candles, {
+      nowSec: input.nowSec,
+      intervalSec,
+      price: input.candles[input.candles.length - 1].close,
+    });
+    return { candles, source: 'spot-flat', price: candles[candles.length - 1]?.close ?? null };
+  }
+
+  const spotPrice = typeof input.spotPrice === 'number' && Number.isFinite(input.spotPrice)
+    ? input.spotPrice
+    : fallbackPrice;
+  if (!spotPrice) return { candles: [], source: 'none', price: null };
+
+  const nowBucket = Math.floor(input.nowSec / intervalSec) * intervalSec;
+  return {
+    source: fallbackPrice && spotPrice === fallbackPrice ? 'binance-fallback' : 'spot-flat',
+    price: spotPrice,
+    candles: [{
+      time: nowBucket,
+      open: spotPrice,
+      high: spotPrice,
+      low: spotPrice,
+      close: spotPrice,
+      volume: 0,
+      sampleCount: 0,
+    }],
+  };
 }
