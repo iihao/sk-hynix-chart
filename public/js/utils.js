@@ -49,6 +49,8 @@ export const state = {
   stealthMode: false,
   currentBinancePrice: 0,
   currentSource: 'naver',
+  selectedSources: ['naver', 'binance'],
+  overlayData: {},
   lastServerTime: 0,
 };
 

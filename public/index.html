@@ -94,10 +94,17 @@
           <span class="tf-text">1时</span>
         </button>
         <div class="toolbar-sep"></div>
-        <select class="currency-sel" id="srcSel" onchange="switchSource(this.value)" title="数据源">
-          <option value="yahoo">Yahoo</option>
-          <option value="naver" selected>Naver</option>
-        </select>
+        <div class="source-toggles" id="sourceToggles" role="group" aria-label="行情源">
+          <button class="source-toggle active" type="button" data-source="naver" onclick="toggleSource('naver')" title="Naver 韩国现货">
+            <span class="source-dot naver"></span><span>NV</span>
+          </button>
+          <button class="source-toggle" type="button" data-source="yahoo" onclick="toggleSource('yahoo')" title="Yahoo 备用行情">
+            <span class="source-dot yahoo"></span><span>YH</span>
+          </button>
+          <button class="source-toggle active" type="button" data-source="binance" onclick="toggleSource('binance')" title="Binance 合约辅助线">
+            <span class="source-dot binance"></span><span>BN</span>
+          </button>
+        </div>
         <div class="toolbar-sep"></div>
         <div class="toolbar-right">
           <select class="currency-sel" id="curSel" onchange="switchCurrency(this.value)">

@@ -172,9 +172,10 @@ function updateHeader(data) {
 function updateAll(data) {
   const bn = data.binance || {};
   ['m1', 'm5', 'm15', 'h1'].forEach((tf) => {
-    if (data[tf]) pushData(tf, data[tf], bn[tf]);
+    if (data[tf]) pushData(tf, data[tf], bn[tf], state.overlayData);
   });
   updateHeader(data);
+  renderSourceToggles();
 }
 
 /* ── Latency ── */
@@ -205,7 +206,7 @@ function switchCurrency(cur) {
   state.currency = cur;
   const bn = state.rawData.binance || {};
   ['m1', 'm5', 'm15', 'h1'].forEach((tf) => {
-    if (state.rawData[tf]) pushData(tf, state.rawData[tf], bn[tf]);
+    if (state.rawData[tf]) pushData(tf, state.rawData[tf], bn[tf], state.overlayData);
   });
   updateHeader(state.rawData);
 }
@@ -223,6 +224,65 @@ async function switchSource(src) {
   await dashboardController.setSource(src);
 }
 
+function preferredSpotSource() {
+  if (state.selectedSources.includes('naver')) return 'naver';
+  if (state.selectedSources.includes('yahoo')) return 'yahoo';
+  return state.currentSource === 'yahoo' ? 'yahoo' : 'naver';
+}
+
+function renderSourceToggles() {
+  document.querySelectorAll('.source-toggle').forEach((button) => {
+    const source = button.dataset.source;
+    const active = state.selectedSources.includes(source);
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+async function refreshOverlaySource(source) {
+  if (!['naver', 'yahoo'].includes(source)) return;
+  if (state.rawData?.source === source) {
+    state.overlayData[source] = state.rawData;
+    return;
+  }
+  try {
+    const res = await fetch(`/api/data?source=${encodeURIComponent(source)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data || data.error) throw new Error(data?.error || 'empty overlay data');
+    state.overlayData[data.source || source] = data;
+    if (state.rawData?.m1 || state.rawData?.m5) updateAll(state.rawData);
+  } catch (e) {
+    console.error(`Failed to fetch ${source} overlay:`, e);
+  }
+}
+
+async function refreshSelectedOverlays() {
+  const spotSources = state.selectedSources.filter((source) => ['naver', 'yahoo'].includes(source));
+  await Promise.all(spotSources.map((source) => refreshOverlaySource(source)));
+}
+
+async function toggleSource(source) {
+  if (!['naver', 'yahoo', 'binance'].includes(source)) return;
+  const selected = new Set(state.selectedSources);
+  if (selected.has(source)) selected.delete(source);
+  else selected.add(source);
+  if (selected.size === 0) selected.add('naver');
+  state.selectedSources = [...selected];
+  renderSourceToggles();
+  resetChartFraming();
+
+  const nextSpot = preferredSpotSource();
+  if (nextSpot !== state.currentSource) {
+    state.currentSource = nextSpot;
+    await dashboardController.setSource(nextSpot);
+  } else {
+    await refreshOverlaySource(nextSpot);
+  }
+  await refreshSelectedOverlays();
+  if (state.rawData?.m1 || state.rawData?.m5) updateAll(state.rawData);
+}
+
 function applySnapshot(data) {
   if (!data || data.error) {
     if (data?.error) showError(data.error);
@@ -230,6 +290,7 @@ function applySnapshot(data) {
   }
   state.krwUsdRate = data.krwUsd || KRW_USD_DEFAULT;
   state.rawData = data;
+  if (['naver', 'yahoo'].includes(data.source)) state.overlayData[data.source] = data;
   state.lastServerTime = data.serverTime || 0;
   const binanceMeta = data.binance?.m5?.meta || data.binance?.m1?.meta || {};
   syncBinanceQuote(binanceMeta.price, binanceMeta.fundingRate);
@@ -277,8 +338,8 @@ async function updateIndicators() {
     renderSignals(document, $('signalsContainer'), data.signals);
 
     // Update support/resistance lines on chart
-    const levelGroup = state.currentSource === 'naver'
-      ? data.levels?.spot
+    const levelGroup = state.selectedSources.includes('binance') && data.levels?.futures
+      ? data.levels.futures
       : data.levels?.spot;
     if (levelGroup || data.support || data.resistance) {
       updateSupportResistance(state.activeTF, levelGroup || {
@@ -552,10 +613,12 @@ function startSecondarySchedules() {
   void updateIndicators();
   void updateFactors();
   void updateHealth();
+  void refreshSelectedOverlays();
   secondaryTimers = [
     setInterval(updateIndicators, 30000),
     setInterval(updateFactors, 60000),
     setInterval(updateHealth, 60000),
+    setInterval(refreshSelectedOverlays, 60000),
   ];
 }
 
@@ -578,6 +641,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  renderSourceToggles();
   void dashboardController.start();
   void fetchBinancePrice();
   startSecondarySchedules();
@@ -617,6 +681,7 @@ window.fpCalculatePnl = fpCalculatePnl;
 window.switchTF = switchTF;
 window.switchCurrency = switchCurrency;
 window.switchSource = switchSource;
+window.toggleSource = toggleSource;
 window.runBacktest = runBacktest;
 window.updateIndicators = updateIndicators;
 window.updateFactors = updateFactors;

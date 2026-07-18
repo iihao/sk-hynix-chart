@@ -70,7 +70,7 @@ import {
 } from './src/contracts/stream';
 import { parseBacktestParams } from './src/contracts/params';
 import { calculateContract, ContractValidationError } from './src/domain/contract';
-import { buildSpotCandles } from './src/domain/candles';
+import { buildSpotCandles, extendFlatCandlesToNow } from './src/domain/candles';
 import { canRecordSpotTick, classifyObservationAge } from './src/domain/market-quality';
 import { buildLevelGroups } from './src/domain/levels';
 import { createCircuitBreaker } from './src/infrastructure/circuit-breaker';
@@ -545,20 +545,7 @@ async function recordTick() {
     let ahPrice = freshAfterHours?.price || null;
     let ahSession = freshAfterHours?.session || null;
     let label = basic.marketOpen ? 'regular' : (ahPrice ? 'after-hours' : 'closed');
-    
-    // When market is closed and after-hours is also closed, use Binance price as proxy
-    if (!basic.marketOpen && (!ahPrice || freshAfterHours?.status === 'CLOSE')) {
-      const bnLatest = selectBinanceLatest.get() as any;
-      if (bnLatest?.price && krwUsdRate > 0) {
-        const proxyPrice = Math.round(bnLatest.price * krwUsdRate);
-        if (proxyPrice > 0) {
-          ahPrice = proxyPrice;
-          ahSession = 'BINANCE_PROXY';
-          label = 'proxy';
-        }
-      }
-    }
-    
+
     insertTick.run(ts, price, basic.prevClose, basic.marketOpen ? 1 : 0, ahPrice, ahSession);
     markSourceHealthy('naver', {
       updatedAt: ts * 1000,
@@ -600,10 +587,17 @@ async function naverChart(interval, range) {
 
   const from = now - rangeSec;
   const ticks = selectRange.all(from, now) as TickData[];
-  const candles = buildCandlesFromTicks(ticks, intervalSec);
+  const rawCandles = buildCandlesFromTicks(ticks, intervalSec);
 
   // Use after-hours price when market is closed but OTC is open
   const displayPrice = (!basic.marketOpen && basic.afterHours) ? basic.afterHours.price : (basic as any).price;
+  const candles = !basic.marketOpen && !basic.afterHours
+    ? extendFlatCandlesToNow(rawCandles, {
+        nowSec: now,
+        intervalSec,
+        price: rawCandles[rawCandles.length - 1]?.close || displayPrice,
+      })
+    : rawCandles;
 
   return {
     source: 'naver',
@@ -1024,7 +1018,14 @@ async function getAllTimeframes(source = 'yahoo') {
   const displayPrice = (!basic.marketOpen && basic.afterHours) ? (basic.afterHours as any).price : (basic as any).price;
     const makeResult = (rangeSec: number, intervalSec: number) => {
       const ticks = selectRange.all(now - rangeSec, now) as TickData[];
-      const candles = buildCandlesFromTicks(ticks, intervalSec);
+      const rawCandles = buildCandlesFromTicks(ticks, intervalSec);
+      const candles = !basic.marketOpen && !basic.afterHours
+        ? extendFlatCandlesToNow(rawCandles, {
+            nowSec: now,
+            intervalSec,
+            price: rawCandles[rawCandles.length - 1]?.close || displayPrice,
+          })
+        : rawCandles;
       return {
         source: 'naver',
         candles: candles.length ? candles : [{ time: now, open: displayPrice, high: displayPrice, low: displayPrice, close: displayPrice, volume: 0 }],
@@ -1052,30 +1053,6 @@ async function getAllTimeframes(source = 'yahoo') {
       binanceLine('15m', sharedMeta), binanceLine('1h', sharedMeta),
     ]);
     binance = { m1: b1, m5: b5, m15: b15, h1: bh };
-    
-    // Use Binance candles as primary if available (has real volume data)
-    const useBinance = b1?.candles?.length >= 10;
-    if (useBinance) {
-      const convertCandle = (bnData: any) => ({
-        source: 'binance',
-        candles: bnData.candles || [],
-        meta: {
-          currency: 'USD',
-          price: bnData.meta?.price || 0,
-          previousClose: bnData.candles?.length >= 2 ? bnData.candles[bnData.candles.length - 2]?.close : 0,
-          exchangeName: 'Binance Futures',
-          ...metaCommon(),
-          marketOpen: true,
-          tickCount: bnData.candles?.length || 0,
-        },
-        dataSource: 'binance',
-      });
-      m1 = convertCandle(b1);
-      m5 = convertCandle(b5);
-      m15 = convertCandle(b15);
-      h1 = convertCandle(bh);
-      source = 'binance';
-    }
   } catch (err) {
     console.error('[binance] fetch error:', err.message);
   }

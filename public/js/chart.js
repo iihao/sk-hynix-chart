@@ -1,9 +1,14 @@
-import { state, BN, convertP, fmtPrice, getLabels, $ } from './utils.js';
+import { state, BN, fmtPrice, getLabels, $ } from './utils.js';
 import {
   formatBeijingCrosshairTime,
   formatBeijingOhlcTime,
   formatBeijingTickTime,
 } from './chart-time.mjs';
+import {
+  getVisibleOverlaySources,
+  lineFromBinance,
+  lineFromCandles,
+} from './chart-overlays.mjs';
 
 /* ── Chart Factory ── */
 export function makeChart(containerId, tf) {
@@ -74,6 +79,15 @@ export function makeChart(containerId, tf) {
     title: 'Naver',
   });
 
+  const yahooLine = chart.addLineSeries({
+    color: '#6f8fbf',
+    lineWidth: 2,
+    lineStyle: 1,
+    priceLineVisible: false,
+    lastValueVisible: true,
+    title: 'Yahoo',
+  });
+
   const bnSeries = chart.addLineSeries({
     color: '#f0b90b',
     lineWidth: 2,
@@ -98,8 +112,9 @@ export function makeChart(containerId, tf) {
     }
     const d = param.seriesData.get(series);
     const nv = param.seriesData.get(naverLine);
+    const yh = param.seriesData.get(yahooLine);
     const bnD = param.seriesData.get(bnSeries);
-    if (!d && !nv && !bnD) return;
+    if (!d && !nv && !yh && !bnD) return;
 
     const L = getLabels();
     let html = '';
@@ -119,14 +134,19 @@ export function makeChart(containerId, tf) {
         `<span><span class="lbl">${L.ohlc[2]}</span><b style="color:${c}">${f(d.low)}</b></span>` +
         `<span><span class="lbl">${L.ohlc[3]}</span><b style="color:${c}">${f(d.close)}</b></span>`;
     }
-    if (nv && state.currentSource === 'naver') {
+    if (nv) {
       html += `<span style="color:#00bcd4"><span class="lbl">NV</span><b>${fmtPrice(
         nv.value
       )}</b></span>`;
     }
+    if (yh) {
+      html += `<span style="color:#6f8fbf"><span class="lbl">YH</span><b>${fmtPrice(
+        yh.value
+      )}</b></span>`;
+    }
     if (bnD) {
-      html += `<span style="margin-left:8px;color:#f0b90b"><span class="lbl">BN</span><b>$${
-        bnD.value?.toFixed(2) || '--'
+      html += `<span style="margin-left:8px;color:#f0b90b"><span class="lbl">BN</span><b>${
+        Number.isFinite(Number(bnD.value)) ? fmtPrice(bnD.value) : '--'
       }</b></span>`;
     }
     ohlcEl.innerHTML = html;
@@ -138,7 +158,7 @@ export function makeChart(containerId, tf) {
   });
   ro.observe(el);
 
-  return { chart, series, volSeries, naverLine, bnSeries, ma5Series, ma20Series, bollUpper, bollLower, initialFramed: false, priceLines: [] };
+  return { chart, series, volSeries, naverLine, yahooLine, bnSeries, ma5Series, ma20Series, bollUpper, bollLower, initialFramed: false, priceLines: [] };
 }
 
 /* ── Apply Indicator Overlays ── */
@@ -177,10 +197,16 @@ export function updateSupportResistance(tf, levelGroup) {
   if (!c) return;
 
   // Remove old price lines
-  for (const line of c.priceLines || []) {
-    try { c.series.removePriceLine(line); } catch (e) {}
+  for (const item of c.priceLines || []) {
+    try {
+      if (item?.series && item?.line) item.series.removePriceLine(item.line);
+      else c.series.removePriceLine(item);
+    } catch (e) {}
   }
   c.priceLines = [];
+  const anchorSeries = state.selectedSources.includes('binance') && c.bnSeries
+    ? c.bnSeries
+    : c.naverLine || c.yahooLine || c.series;
 
   const support = levelGroup?.support || [];
   const resistance = levelGroup?.resistance || [];
@@ -194,7 +220,7 @@ export function updateSupportResistance(tf, levelGroup) {
   // Draw support lines (green)
   for (const s of (support || []).slice(0, 3)) {
     const price = toDisplayPrice(s.price);
-    const line = c.series.createPriceLine({
+    const line = anchorSeries.createPriceLine({
       price,
       color: 'rgba(14, 203, 129, 0.4)',
       lineWidth: 1,
@@ -202,13 +228,13 @@ export function updateSupportResistance(tf, levelGroup) {
       axisLabelVisible: true,
       title: `S${s.strength || ''}`,
     });
-    c.priceLines.push(line);
+    c.priceLines.push({ series: anchorSeries, line });
   }
 
   // Draw resistance lines (red)
   for (const r of (resistance || []).slice(0, 3)) {
     const price = toDisplayPrice(r.price);
-    const line = c.series.createPriceLine({
+    const line = anchorSeries.createPriceLine({
       price,
       color: 'rgba(246, 70, 93, 0.4)',
       lineWidth: 1,
@@ -216,71 +242,44 @@ export function updateSupportResistance(tf, levelGroup) {
       axisLabelVisible: true,
       title: `R${r.strength || ''}`,
     });
-    c.priceLines.push(line);
+    c.priceLines.push({ series: anchorSeries, line });
   }
 }
 
 /* ── Data Pipeline ── */
-export function pushData(tf, data, bnData) {
+export function pushData(tf, data, bnData, overlayData = {}) {
   const c = state.charts[tf];
   if (!c) return;
-  const isNaverSource = state.currentSource === 'naver';
-  const isBinanceData = data?.dataSource === 'binance' || data?.source === 'binance';
-  const isNaverData = data?.source === 'naver';
+  c.series.applyOptions({ visible: false });
+  c.volSeries.applyOptions({ visible: false });
+  c.series.setData([]);
+  c.volSeries.setData([]);
 
-  // Convert price based on DATA source, not user-selected source
-  const convertPrice = (v) => {
-    if (isBinanceData) {
-      // Binance data is already USD
-      return state.currency === 'KRW' ? Math.round(v * state.krwUsdRate) : +(v).toFixed(2);
-    } else {
-      // Naver/Yahoo data is KRW
-      return state.currency === 'USD' ? +(v / state.krwUsdRate).toFixed(2) : Math.round(v);
-    }
+  const visibleSources = getVisibleOverlaySources(state.selectedSources);
+  const sourceFrame = (source) => overlayData[source]?.[tf] || (data?.source === source ? data : null);
+  const renderSpotLine = (source, lineSeries) => {
+    const frame = sourceFrame(source);
+    const lineData = visibleSources.includes(source) && frame?.candles?.length
+      ? lineFromCandles(frame.candles, {
+          fromCurrency: 'KRW',
+          toCurrency: state.currency,
+          krwUsdRate: state.krwUsdRate,
+        })
+      : [];
+    lineSeries.setData(lineData);
+    lineSeries.applyOptions({ visible: lineData.length > 0 });
   };
 
-  if (isNaverSource && isNaverData && data?.candles?.length && c.naverLine) {
-    // Naver source selected AND data is from Naver: show as line
-    c.series.applyOptions({ visible: false });
-    c.volSeries.applyOptions({ visible: false });
-    c.naverLine.applyOptions({ visible: true });
-    const lineData = data.candles.map((i) => ({
-      time: i.time,
-      value: convertPrice(i.close),
-    }));
-    c.naverLine.setData(lineData);
-  } else if (data?.candles?.length) {
-    // Binance source or non-Naver data: show as candlestick
-    c.series.applyOptions({ visible: true });
-    c.volSeries.applyOptions({ visible: true });
-    if (c.naverLine) c.naverLine.applyOptions({ visible: false });
-    const candles = data.candles.map((i) => ({
-      time: i.time,
-      open: convertPrice(i.open),
-      high: convertPrice(i.high),
-      low: convertPrice(i.low),
-      close: convertPrice(i.close),
-    }));
-    c.series.setData(candles);
-    c.volSeries.setData(
-      data.candles.map((cc) => ({
-        time: cc.time,
-        value: cc.volume,
-        color: cc.close >= cc.open ? BN.upVol : BN.downVol,
-      }))
-    );
-  }
+  if (c.naverLine) renderSpotLine('naver', c.naverLine);
+  if (c.yahooLine) renderSpotLine('yahoo', c.yahooLine);
 
-  if (bnData?.line?.length && c.bnSeries) {
-    const bnLine = bnData.line.map((p) => ({
-      time: p.time,
-      value:
-        state.currency === 'KRW'
-          ? Math.round(p.value * state.krwUsdRate)
-          : p.value,
-    }));
+  if (visibleSources.includes('binance') && bnData && c.bnSeries) {
+    const bnLine = lineFromBinance(bnData, {
+      toCurrency: state.currency,
+      krwUsdRate: state.krwUsdRate,
+    });
     c.bnSeries.setData(bnLine);
-    c.bnSeries.applyOptions({ visible: true });
+    c.bnSeries.applyOptions({ visible: bnLine.length > 0 });
   } else if (c.bnSeries) {
     c.bnSeries.setData([]);
     c.bnSeries.applyOptions({ visible: false });
@@ -293,7 +292,7 @@ export function pushData(tf, data, bnData) {
   const shouldFrame = !c.initialFramed || c.pendingFrame;
   if (shouldFrame) {
     const visibleBars = TF_VISIBLE[tf] || 120;
-    const allData = data?.candles || [];
+    const allData = data?.candles || sourceFrame('naver')?.candles || sourceFrame('yahoo')?.candles || bnData?.candles || [];
     if (allData.length > visibleBars) {
       const from = allData[allData.length - visibleBars].time;
       const to = allData[allData.length - 1].time;

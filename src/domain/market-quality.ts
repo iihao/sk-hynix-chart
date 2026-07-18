@@ -19,8 +19,7 @@ export function canRecordSpotTick(input: {
   const session = getKoreaSession(input.nowMs);
   if (session === 'regular') return input.marketOpen;
   if (session === 'after') return input.hasFreshAfterHours;
-  // During closed hours, allow recording for proxy prices
-  return true;
+  return false;
 }
 
 export function classifyObservationAge(input: {

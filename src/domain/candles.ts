@@ -53,3 +53,31 @@ export function buildSpotCandles(ticks: SpotTickInput[], intervalSec: number): S
   flush();
   return candles;
 }
+
+export function extendFlatCandlesToNow(
+  candles: SpotCandle[],
+  input: { nowSec: number; intervalSec: number; price?: number | null },
+): SpotCandle[] {
+  if (candles.length === 0) return [];
+  const intervalSec = Math.max(1, Math.floor(input.intervalSec));
+  const nowBucket = Math.floor(input.nowSec / intervalSec) * intervalSec;
+  const result = [...candles];
+  const last = result[result.length - 1];
+  const flatPrice = typeof input.price === 'number' && Number.isFinite(input.price)
+    ? input.price
+    : last.close;
+
+  for (let time = last.time + intervalSec; time <= nowBucket; time += intervalSec) {
+    result.push({
+      time,
+      open: flatPrice,
+      high: flatPrice,
+      low: flatPrice,
+      close: flatPrice,
+      volume: 0,
+      sampleCount: 0,
+    });
+  }
+
+  return result;
+}
