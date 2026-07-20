@@ -99,7 +99,7 @@ export function makeChart(containerId, tf) {
   });
 
   // ── Indicator Overlay Series ──
-  const ma5Series = chart.addLineSeries({ color: '#e8a838', lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, title: 'MA5' });
+  const ma5Series = chart.addLineSeries({ color: '#cd853f', lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, title: 'MA5' });
   const ma20Series = chart.addLineSeries({ color: '#e058a0', lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, title: 'MA20' });
   const bollUpper = chart.addLineSeries({ color: 'rgba(156,163,175,0.4)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, title: 'BOLL' });
   const bollLower = chart.addLineSeries({ color: 'rgba(156,163,175,0.4)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });

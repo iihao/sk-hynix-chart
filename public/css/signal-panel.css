@@ -486,6 +486,43 @@ body.signal-panel-open .signal-expand-strip { display: none; }
   opacity: 0.5;
 }
 
+/* ── Historical Signals ── */
+.sig-historical {
+  opacity: 0.6;
+  background: rgba(255,255,255,0.01);
+  border-left-color: rgba(255,255,255,0.1) !important;
+}
+.sig-historical .sig-dot {
+  opacity: 0.5;
+  box-shadow: none !important;
+}
+.sig-historical .sig-label {
+  font-weight: 400;
+  opacity: 0.8;
+}
+.sig-historical .sig-time {
+  opacity: 0.4;
+}
+.sig-historical .sig-strength {
+  opacity: 0.5;
+}
+.sig-historical:hover {
+  opacity: 0.8;
+  background: rgba(255,255,255,0.03);
+}
+
+/* ── Signal Separator ── */
+.sig-separator {
+  font-size: 9px;
+  color: var(--text);
+  text-align: center;
+  padding: 8px 0 4px;
+  opacity: 0.5;
+  letter-spacing: 1px;
+  border-top: 1px solid rgba(255,255,255,0.04);
+  margin-top: 4px;
+}
+
 /* ── Strategy ── */
 .strategy-box {
   background: linear-gradient(135deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));

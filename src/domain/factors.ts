@@ -36,7 +36,7 @@ export function calculateWeightedComposite(
   }
 
   const composite = totalWeight > 0 ? weightedScore / totalWeight : 0;
-  const direction = composite > 1.5 ? 'long' : composite < -1.5 ? 'short' : 'neutral';
+  const direction = composite > 0.3 ? 'long' : composite < -0.3 ? 'short' : 'neutral';
   
   // Confidence based on composite strength and factor consensus
   const factorConsensus = factors.length > 0 

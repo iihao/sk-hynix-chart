@@ -276,6 +276,18 @@ db.exec(`
     reason TEXT NOT NULL,
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS signals_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_type TEXT NOT NULL,
+    label TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    time INTEGER NOT NULL,
+    strength INTEGER DEFAULT 1,
+    tf TEXT NOT NULL DEFAULT '5m',
+    created_at INTEGER NOT NULL,
+    UNIQUE(signal_type, time, tf)
+  );
+  CREATE INDEX IF NOT EXISTS idx_signals_tf_time ON signals_history(tf, time DESC);
 `);
 db.prepare(`
   INSERT OR IGNORE INTO paper_account (id, initial_balance, available_balance, realized_pnl, updated_at)
@@ -323,6 +335,11 @@ const insertPaperFill = db.prepare(`INSERT INTO paper_fills
   (position_id, type, direction, price, quantity, notional, fee, realized_pnl, balance_after, reason, created_at)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 const selectPaperFills = db.prepare('SELECT * FROM paper_fills ORDER BY created_at DESC, id DESC LIMIT ?');
+
+// Signals history prepared statements
+const insertSignal = db.prepare('INSERT OR IGNORE INTO signals_history (signal_type, label, direction, time, strength, tf, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+const selectSignalsByTf = db.prepare('SELECT signal_type, label, direction, time, strength FROM signals_history WHERE tf = ? ORDER BY time DESC LIMIT ?');
+const selectRecentSignals = db.prepare('SELECT signal_type, label, direction, time, strength FROM signals_history WHERE tf = ? AND time >= ? ORDER BY time DESC');
 
 function roundNumber(value: number, digits = 2): number {
   const scale = 10 ** digits;
@@ -1669,6 +1686,61 @@ app.get('/api/indicators', (req, res) => {
     
     const result = calculateAllIndicators(candles);
     
+    // Store newly detected signals to database
+    const currentSignals = result.signals || [];
+    const nowTs = Math.floor(Date.now() / 1000);
+    for (const signal of currentSignals) {
+      try {
+        insertSignal.run(
+          signal.type,
+          signal.label,
+          (signal as any).direction || 'neutral',
+          signal.time,
+          signal.strength || 1,
+          tf,
+          nowTs
+        );
+      } catch (e) {
+        // Ignore duplicate key errors
+      }
+    }
+    
+    // Retrieve historical signals from database (last 100 signals for this timeframe)
+    const historicalSignals = selectSignalsByTf.all(tf, 100) as any[];
+    
+    // Merge: deduplicate by (type, time), prefer current signals
+    const signalMap = new Map<string, any>();
+    
+    // Add historical signals first
+    for (const sig of historicalSignals) {
+      const key = `${sig.signal_type}_${sig.time}`;
+      signalMap.set(key, {
+        type: sig.signal_type,
+        label: sig.label,
+        direction: sig.direction,
+        time: sig.time,
+        strength: sig.strength,
+        historical: true,
+      });
+    }
+    
+    // Override with current signals (they have fresh data)
+    for (const sig of currentSignals) {
+      const key = `${sig.type}_${sig.time}`;
+      signalMap.set(key, {
+        type: sig.type,
+        label: sig.label,
+        direction: (sig as any).direction || 'neutral',
+        time: sig.time,
+        strength: sig.strength,
+        historical: false,
+      });
+    }
+    
+    // Sort by time descending (most recent first)
+    const mergedSignals = Array.from(signalMap.values())
+      .sort((a, b) => b.time - a.time);
+    
     // Get support/resistance from both sources
     const binanceSR = binanceCandles.length >= 20 ? findSupportResistance(binanceCandles) : { support: [], resistance: [] };
     const naverSR = naverCandles.length >= 20 ? findSupportResistance(naverCandles) : { support: [], resistance: [] };
@@ -1705,7 +1777,7 @@ app.get('/api/indicators', (req, res) => {
         bollLower: latest.bollinger.lower,
         macdState,
       },
-      signals: result.signals,
+      signals: mergedSignals,
       support: levels.spot.support,
       resistance: levels.spot.resistance,
       levels,
@@ -2443,7 +2515,7 @@ const DEFAULT_WEIGHTS = {
 
 // Active optimized weights and params — used by strategy & factors API
 let activeWeights = { ...DEFAULT_WEIGHTS };
-let activeParams = { entryThreshold: 2.0, holdBars: 12, stopLossPct: 3.0, takeProfitPct: 5.0, leverage: 5 };
+let activeParams = { entryThreshold: 0.3, holdBars: 12, stopLossPct: 3.0, takeProfitPct: 5.0, leverage: 5 };
 let lastOptimizeTime = 0;
 let optimizeRunning = false;
 
@@ -2496,7 +2568,7 @@ async function autoOptimize() {
     let bestWeights = { ...activeWeights };
     let bestParams = { ...activeParams };
 
-    const thresholds = [1.5, 2.0, 2.5, 3.0];
+    const thresholds = [0.3, 0.5, 0.8, 1.2];
     const holdOptions = [8, 12, 18, 24];
     const weightOptions = [0.3, 0.5, 0.7, 0.9];
     const factorKeys = Object.keys(DEFAULT_WEIGHTS);

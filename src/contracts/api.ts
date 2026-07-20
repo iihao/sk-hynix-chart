@@ -97,6 +97,39 @@ export interface StrategyResponse {
   entryThresholdUsed: number;
   entryNote: string;
   riskOverlay: RiskOverlay;
+  /** 新手友好的操作建议 (因子驱动) */
+  advice: OperationAdvice;
+}
+
+export interface OperationAdvice {
+  action: string;
+  signalStrength: string;
+  confidence: number;
+  reason: string;
+  entry: {
+    text: string;
+    price: number;
+    condition?: string;
+  };
+  exit: {
+    takeProfit: string;
+    takeProfitPrice: number;
+    stopLoss: string;
+    stopLossPrice: number;
+    riskReward: string;
+  };
+  position: {
+    pct: number;
+    leverage: string;
+    text: string;
+  };
+  warnings: string[];
+  drivers?: Array<{
+    category: string;
+    label: string;
+    score: number;
+    contribution: string;
+  }>;
 }
 
 export interface RiskOverlay {

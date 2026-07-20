@@ -32,28 +32,56 @@ export function renderSignals(document, element, signals) {
     renderPanelMessage(document, element, '暂无信号');
     return;
   }
-  for (const signal of signals) {
-    const row = document.createElement('div');
-    const tone = BULLISH_TYPES.has(signal.type)
-      ? 'bull'
-      : BEARISH_TYPES.has(signal.type) ? 'bear' : 'neut';
-    row.className = `sig-row ${tone}`;
-    appendText(document, row, 'span', 'sig-dot', '');
-    appendText(document, row, 'span', 'sig-label', signal.label || '未命名信号');
-    
-    // Show trigger time if available
-    if (signal.time) {
-      const time = new Date(signal.time * 1000 + 8 * 3600000); // Beijing time
-      const hh = String(time.getUTCHours()).padStart(2, '0');
-      const mm = String(time.getUTCMinutes()).padStart(2, '0');
-      const MM = String(time.getUTCMonth() + 1).padStart(2, '0');
-      const dd = String(time.getUTCDate()).padStart(2, '0');
-      appendText(document, row, 'span', 'sig-time', `${MM}/${dd} ${hh}:${mm}`);
+  
+  // Separate current and historical signals
+  const currentSignals = signals.filter(s => !s.historical);
+  const historicalSignals = signals.filter(s => s.historical);
+  
+  // Render current signals first
+  if (currentSignals.length > 0) {
+    for (const signal of currentSignals) {
+      const row = createSignalRow(document, signal, false);
+      element.appendChild(row);
+    }
+  }
+  
+  // Render historical signals with visual separator
+  if (historicalSignals.length > 0) {
+    if (currentSignals.length > 0) {
+      const separator = document.createElement('div');
+      separator.className = 'sig-separator';
+      separator.textContent = `── 历史信号 (${historicalSignals.length}) ──`;
+      element.appendChild(separator);
     }
     
-    appendText(document, row, 'span', 'sig-strength', '*'.repeat(Math.max(1, Number(signal.strength) || 1)));
-    element.appendChild(row);
+    for (const signal of historicalSignals.slice(0, 20)) { // Limit to 20 historical signals
+      const row = createSignalRow(document, signal, true);
+      element.appendChild(row);
+    }
   }
+}
+
+function createSignalRow(document, signal, isHistorical) {
+  const row = document.createElement('div');
+  const tone = BULLISH_TYPES.has(signal.type)
+    ? 'bull'
+    : BEARISH_TYPES.has(signal.type) ? 'bear' : 'neut';
+  row.className = `sig-row ${tone}${isHistorical ? ' sig-historical' : ''}`;
+  appendText(document, row, 'span', 'sig-dot', '');
+  appendText(document, row, 'span', 'sig-label', signal.label || '未命名信号');
+  
+  // Show trigger time if available
+  if (signal.time) {
+    const time = new Date(signal.time * 1000 + 8 * 3600000); // Beijing time
+    const hh = String(time.getUTCHours()).padStart(2, '0');
+    const mm = String(time.getUTCMinutes()).padStart(2, '0');
+    const MM = String(time.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(time.getUTCDate()).padStart(2, '0');
+    appendText(document, row, 'span', 'sig-time', `${MM}/${dd} ${hh}:${mm}`);
+  }
+  
+  appendText(document, row, 'span', 'sig-strength', '*'.repeat(Math.max(1, Number(signal.strength) || 1)));
+  return row;
 }
 
 export function renderFactors(document, element, factors, omittedFactors = []) {

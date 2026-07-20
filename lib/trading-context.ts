@@ -412,7 +412,7 @@ export function deriveRegime({
       reason: '事件窗口优先，避免方向误判',
     };
   }
-  if (Math.abs(composite) >= 3 && consensus >= 0.55 && Math.abs(basisZScore) < 2.3 && atrPct < 3.5) {
+  if (Math.abs(composite) >= 1.2 && consensus >= 0.55 && Math.abs(basisZScore) < 2.3 && atrPct < 3.5) {
     return {
       mode: 'trend',
       label: '趋势模式',

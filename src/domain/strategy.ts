@@ -3,6 +3,7 @@
 
 import { Factor } from './factors';
 import { IndicatorResult, SupportResistance } from './indicators';
+import { generateOperationAdvice, OperationAdvice, AdviceContext } from './advice';
 
 export interface Strategy {
   direction: 'long' | 'short' | 'neutral';
@@ -25,6 +26,8 @@ export interface Strategy {
   regimeReason?: string;
   entryThresholdUsed?: number;
   entryNote?: string;
+  /** 新手友好的操作建议 (因子驱动) */
+  advice: OperationAdvice;
 }
 
 export interface RiskOverlay {
@@ -67,7 +70,7 @@ export function deriveRegime(params: {
     };
   }
   
-  if (Math.abs(composite) >= 3 && consensus >= 0.55 && Math.abs(basisZScore) < 2.3 && atrPct < 3.5) {
+  if (Math.abs(composite) >= 1.2 && consensus >= 0.55 && Math.abs(basisZScore) < 2.3 && atrPct < 3.5) {
     return {
       mode: 'trend',
       label: '趋势模式',
@@ -189,20 +192,20 @@ export function generateStrategy(params: {
     basisZScore = 0,
     atrPct = 0,
   } = params;
-  
+
   const len = candles.length;
   const currentPrice = candles[len - 1]?.close || 0;
-  
+
   // Determine direction
   let direction: 'long' | 'short' | 'neutral' = 'neutral';
-  if (composite > 2) direction = 'long';
-  else if (composite < -2) direction = 'short';
-  
+  if (composite > 0.3) direction = 'long';
+  else if (composite < -0.3) direction = 'short';
+
   // Calculate consensus
   const positiveFactors = factors.filter(f => f.score > 0).length;
   const negativeFactors = factors.filter(f => f.score < 0).length;
   const consensus = factors.length > 0 ? Math.max(positiveFactors, negativeFactors) / factors.length : 0;
-  
+
   // Determine regime
   const regime = deriveRegime({
     composite,
@@ -211,11 +214,11 @@ export function generateStrategy(params: {
     basisZScore,
     atrPct,
   });
-  
+
   // Build reasoning
   const reasoning: string[] = [];
   const evidence = { for: [] as string[], against: [] as string[], neutral: [] as string[] };
-  
+
   for (const f of factors) {
     if (f.score > 1) {
       evidence.for.push(`${f.label}: ${f.detail}`);
@@ -225,12 +228,12 @@ export function generateStrategy(params: {
       evidence.neutral.push(`${f.label}: ${f.detail}`);
     }
   }
-  
+
   // Entry calculation
-  const entryThreshold = 2 * regime.entryThresholdMultiplier;
+  const entryThreshold = 0.5 * regime.entryThresholdMultiplier;
   let entry = '';
   let entryNote = '';
-  
+
   if (direction === 'long') {
     if (currentPrice > indicators.ma20) {
       entry = `当前价上方回踩 ${indicators.ma20.toFixed(0)}`;
@@ -251,7 +254,7 @@ export function generateStrategy(params: {
     entry = '观望';
     entryNote = '方向不明确，等待信号';
   }
-  
+
   // Stop loss
   const atrValue = currentPrice * atrPct / 100;
   let stopLoss = '';
@@ -272,31 +275,52 @@ export function generateStrategy(params: {
   } else {
     takeProfit = `${(currentPrice + atrValue * 3).toFixed(0)} / ${(currentPrice - atrValue * 3).toFixed(0)}`;
   }
-  
+
   // Risk level
   let riskLevel: 'low' | 'medium' | 'high' = 'medium';
   if (atrPct > 3 || Math.abs(basisZScore) > 2) riskLevel = 'high';
   else if (atrPct < 1.5 && Math.abs(basisZScore) < 1) riskLevel = 'low';
-  
+
   // Warnings
   const warnings: string[] = [];
   if (atrPct > 3) warnings.push('波动率偏高，注意风险');
   if (Math.abs(basisZScore) > 2) warnings.push('基差偏离较大');
   if (eventStatus !== 'clear') warnings.push('事件窗口期间谨慎操作');
-  
+
   // Confidence
-  const confidence = Math.min(100, Math.round(Math.abs(composite) * 15 + consensus * 20));
-  
+  const confidence = Math.min(100, Math.round(Math.abs(composite) * 12 + consensus * 30));
+
   // Risk/Reward
-  const riskReward = direction === 'long' 
-    ? `1:${(3/2).toFixed(1)}` 
-    : direction === 'short' 
-    ? `1:${(3/2).toFixed(1)}` 
+  const riskReward = direction === 'long'
+    ? `1:${(3/2).toFixed(1)}`
+    : direction === 'short'
+    ? `1:${(3/2).toFixed(1)}`
     : 'N/A';
-  
+
   // Leverage
   const leverage = riskLevel === 'high' ? '2x' : riskLevel === 'medium' ? '3x' : '5x';
-  
+
+  // ── 生成新手友好的操作建议 (因子驱动) ──
+  const adviceCtx: AdviceContext = {
+    factors,
+    composite,
+    direction,
+    confidence,
+    currentPrice,
+    atrPct,
+    atrValue,
+    consensus,
+    regime: regime.mode as 'trend' | 'range' | 'event',
+    supportPrices: support.map(s => s.price),
+    resistancePrices: resistance.map(r => r.price),
+    ma20: indicators.ma20,
+    rsi: indicators.rsi,
+    fundingRate,
+    eventStatus,
+    basisZScore,
+  };
+  const advice = generateOperationAdvice(adviceCtx);
+
   return {
     direction,
     entry,
@@ -314,5 +338,6 @@ export function generateStrategy(params: {
     regimeReason: regime.reason,
     entryThresholdUsed: entryThreshold,
     entryNote,
+    advice,
   };
 }

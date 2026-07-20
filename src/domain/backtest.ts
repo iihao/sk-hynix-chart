@@ -16,6 +16,8 @@ import {
   factorWhaleActivity,
   factorIndicatorMomentum,
   factorSupportResistance,
+  factorExchangeRate,
+  factorNewsSentiment,
 } from './factors';
 import { findFxAtOrBefore, FxTick } from './fx';
 import { calculateAllIndicators, findSupportResistance, SupportResistance } from './indicators';
@@ -29,11 +31,17 @@ export interface BacktestParams {
   weights?: Record<string, number>;
   observationToleranceSec?: number;
   fxRate?: number;
+  prevFxRate?: number;
   fxTicks?: FxTick[];
   timeframe?: 'm1' | 'm5' | 'm15' | 'h1';
   feeRate?: number;
   slippageBps?: number;
   hasRealVolume?: boolean;
+  sentimentHistory?: BacktestSentimentRow[];
+  newsScore?: number;
+  newsPositive?: number;
+  newsNegative?: number;
+  newsTopHeadline?: string;
 }
 
 export interface BacktestBinanceTick {
@@ -264,7 +272,39 @@ function calculateFactorsAtPosition(
       }
     }
   }
-  
+
+  // FX factor
+  if (params.fxRate && params.fxRate > 0) {
+    factors.push(factorExchangeRate(params.fxRate, params.prevFxRate || params.fxRate));
+  }
+
+  // LS Trend factor (requires sentiment history with valid ls_ratio)
+  if (sentimentRow && index > 0) {
+    const rawHistory = params.sentimentHistory || [];
+    const sentimentHistory = rawHistory
+      .filter((r: any) => typeof r.ls_ratio === 'number' && r.ls_ratio > 0)
+      .map((r: any) => ({ ts: r.ts, ls_ratio: r.ls_ratio! }));
+    if (sentimentHistory.length >= 3) {
+      factors.push(factorLongShortTrend(sentimentHistory));
+    }
+  }
+
+  // Whale activity factor (requires sentiment history with valid top_ls_ratio)
+  if (sentimentRow && typeof sentimentRow.top_ls_ratio === 'number') {
+    const rawHistory = params.sentimentHistory || [];
+    const sentimentHistory = rawHistory
+      .filter((r: any) => typeof r.top_ls_ratio === 'number' && r.top_ls_ratio > 0)
+      .map((r: any) => ({ ts: r.ts, top_ls_ratio: r.top_ls_ratio! }));
+    if (sentimentHistory.length >= 3) {
+      factors.push(factorWhaleActivity(sentimentHistory));
+    }
+  }
+
+  // News sentiment factor
+  if (params.newsScore !== undefined) {
+    factors.push(factorNewsSentiment(params.newsScore, params.newsPositive || 0, params.newsNegative || 0, params.newsTopHeadline || ''));
+  }
+
   return factors;
 }
 
@@ -476,7 +516,7 @@ export function backtestEngine(
   params: BacktestParams = {},
 ): BacktestResult {
   const {
-    threshold = 2,
+    threshold = 0.3,
     holdBars = 12,
     leverage = 1,
     stopLossPct = 3,
@@ -562,10 +602,11 @@ export function backtestEngine(
       let rawExit = candle.close;
       
       // Check for exit signal (direction reversal)
-      const exitFactors = calculateFactorsAtPosition(candles, i, 
+      const exitSentimentHistory = orderedSentiment.slice(0, sentimentIndex + 1);
+      const exitFactors = calculateFactorsAtPosition(candles, i,
         binanceIndex >= 0 ? orderedBinance[binanceIndex] : undefined,
         sentimentIndex >= 0 ? orderedSentiment[sentimentIndex] : undefined,
-        params, srLevels);
+        { ...params, sentimentHistory: exitSentimentHistory }, srLevels);
       const exitComposite = calculateWeightedComposite(exitFactors, weights).composite;
       const exitSignal = (position.direction === 'long' && exitComposite < -threshold) ||
                          (position.direction === 'short' && exitComposite > threshold);
@@ -608,7 +649,10 @@ export function backtestEngine(
     if (!position && !pendingDirection) {
       const binance = binanceIndex >= 0 ? orderedBinance[binanceIndex] : undefined;
       const sentiment = sentimentIndex >= 0 ? orderedSentiment[sentimentIndex] : undefined;
-      const factors = calculateFactorsAtPosition(candles, i, binance, sentiment, params, srLevels);
+      // Build sentiment history window for trend factors
+      const sentimentHistory = orderedSentiment.slice(0, sentimentIndex + 1);
+      const enrichedParams = { ...params, sentimentHistory };
+      const factors = calculateFactorsAtPosition(candles, i, binance, sentiment, enrichedParams, srLevels);
       const composite = calculateWeightedComposite(factors, weights).composite;
       
       if (composite > threshold) {
@@ -710,7 +754,7 @@ export function optimizeWeights(
   binanceTicks: BacktestBinanceTick[],
   sentimentData: BacktestSentimentRow[]
 ): BacktestResult {
-  const thresholds = [1.5, 2, 2.5, 3];
+  const thresholds = [0.3, 0.5, 0.8, 1.2];
   const holdBars = [8, 12, 16, 20];
   const stopLosses = [2, 3, 4];
   const takeProfits = [4, 6, 8];
