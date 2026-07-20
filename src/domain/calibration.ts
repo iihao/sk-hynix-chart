@@ -157,15 +157,17 @@ export function calibrateSignalConfidence(params: {
   } = params;
 
   if (direction === 'neutral') {
+    // Even in neutral, show a reduced confidence based on signal strength
+    const neutralConfidence = Math.round(clamp(rawConfidence * 0.4, 0, 30));
     return {
       rawConfidence: Math.round(clamp(rawConfidence, 0, 100)),
-      confidence: 0,
+      confidence: neutralConfidence,
       backtestProbability: backtestCalibration.profitProbability,
       sampleTrades: backtestCalibration.sampleTrades,
       factorAgreement: 0,
       indicatorAgreement: 0,
       penalties: [],
-      note: '方向中性，不生成交易置信度',
+      note: '方向中性，置信度已大幅下调',
     };
   }
 

@@ -443,21 +443,36 @@ body.signal-panel-open .signal-expand-strip { display: none; }
 .sig-row.bull { border-left-color: var(--green); }
 .sig-row.bear { border-left-color: var(--red); }
 .sig-row.neut { border-left-color: var(--border); }
-.sig-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+
+/* ── Signal Arrow (directional indicator) ── */
+.sig-arrow {
+  font-size: 16px;
+  font-weight: 900;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
   flex-shrink: 0;
+  line-height: 1;
 }
-.sig-row.bull .sig-dot { 
-  background: var(--green); 
-  box-shadow: 0 0 6px rgba(14,203,129,0.4); 
+.sig-row.bull .sig-arrow {
+  color: var(--green);
+  background: rgba(14,203,129,0.12);
+  text-shadow: 0 0 8px rgba(14,203,129,0.5);
 }
-.sig-row.bear .sig-dot { 
-  background: var(--red); 
-  box-shadow: 0 0 6px rgba(246,70,93,0.4); 
+.sig-row.bear .sig-arrow {
+  color: var(--red);
+  background: rgba(246,70,93,0.12);
+  text-shadow: 0 0 8px rgba(246,70,93,0.5);
 }
-.sig-row.neut .sig-dot { background: var(--text); }
+.sig-row.neut .sig-arrow {
+  color: var(--text);
+  background: rgba(255,255,255,0.05);
+  font-size: 12px;
+}
+
 .sig-label {
   flex: 1;
   font-size: 11px;
@@ -492,9 +507,10 @@ body.signal-panel-open .signal-expand-strip { display: none; }
   background: rgba(255,255,255,0.01);
   border-left-color: rgba(255,255,255,0.1) !important;
 }
-.sig-historical .sig-dot {
+.sig-historical .sig-arrow {
   opacity: 0.5;
-  box-shadow: none !important;
+  text-shadow: none !important;
+  font-size: 14px;
 }
 .sig-historical .sig-label {
   font-weight: 400;

@@ -59,6 +59,7 @@ test('preserves supported factor context fields', () => {
   const marketContext = { atrPct: 2.1 };
   const backtestCalibration = { profitProbability: 52.5, sampleTrades: 10 };
   const confidenceCalibration = { indicatorAgreement: 0.7, penalties: [] };
+  const timeframeProfile = { tf: 'm5', role: 'trade', label: '5m 主决策' };
   const result = normalizeFactors({
     factors: [],
     composite: 0,
@@ -68,10 +69,12 @@ test('preserves supported factor context fields', () => {
     marketContext,
     backtestCalibration,
     confidenceCalibration,
+    timeframeProfile,
   });
   assert.deepEqual(result.marketContext, marketContext);
   assert.deepEqual(result.backtestCalibration, backtestCalibration);
   assert.deepEqual(result.confidenceCalibration, confidenceCalibration);
+  assert.deepEqual(result.timeframeProfile, timeframeProfile);
   assert.equal(result.rawConfidence, 68);
   assert.equal(result.direction.confidence, 42);
 });
@@ -131,12 +134,16 @@ test('normalizes the domain backtest response shape', () => {
     weights: { momentum: 0.8 },
     costs: {fees: 2, slippage: 1, funding: 0},
     test: {trades: 2},
+    timeframeProfile: {tf: 'm5', role: 'trade'},
+    activeProfiles: {m5: {tf: 'm5'}},
   });
   assert.equal(result.metrics.sharpe, 0.4);
   assert.equal(result.trades[0].entry, 100);
   assert.deepEqual(result.weights, { momentum: 0.8 });
   assert.equal(result.costs.fees, 2);
   assert.equal(result.test.trades, 2);
+  assert.equal(result.timeframeProfile.tf, 'm5');
+  assert.equal(result.activeProfiles.m5.tf, 'm5');
 });
 
 test('uses a valid fallback response source', () => {

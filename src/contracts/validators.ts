@@ -21,6 +21,16 @@ function expectNumber(value: unknown, field: string): number {
   return value;
 }
 
+function expectTimeframeProfile(value: unknown, field: string): void {
+  const profile = expectObject(value, field);
+  if (typeof profile.tf !== 'string') throw new Error(`Invalid API response: ${field}.tf`);
+  if (typeof profile.label !== 'string') throw new Error(`Invalid API response: ${field}.label`);
+  if (typeof profile.role !== 'string') throw new Error(`Invalid API response: ${field}.role`);
+  expectNumber(profile.decisionWeight, `${field}.decisionWeight`);
+  expectNumber(profile.minSampleTrades, `${field}.minSampleTrades`);
+  expectObject(profile.params, `${field}.params`);
+}
+
 export function parseIndicatorsResponse(value: unknown): IndicatorsResponse {
   const data = expectObject(value, 'indicators');
   expectArray(data.rsi, 'rsi');
@@ -81,6 +91,9 @@ export function parseFactorsResponse(value: unknown): FactorsResponse {
       throw new Error('Invalid API response: confidenceCalibration.note');
     }
   }
+  if (data.timeframeProfile !== undefined) {
+    expectTimeframeProfile(data.timeframeProfile, 'timeframeProfile');
+  }
   if (!['long', 'short', 'neutral'].includes(data.direction)) {
     throw new Error('Invalid API response: direction');
   }
@@ -104,6 +117,15 @@ export function parseBacktestResponse(value: unknown): BacktestResponse {
   expectNumber(metrics.totalTrades, 'metrics.totalTrades');
   expectNumber(metrics.avgWin, 'metrics.avgWin');
   expectNumber(metrics.avgLoss, 'metrics.avgLoss');
+  if (data.timeframeProfile !== undefined) {
+    expectTimeframeProfile(data.timeframeProfile, 'timeframeProfile');
+  }
+  if (data.activeProfiles !== undefined) {
+    const activeProfiles = expectObject(data.activeProfiles, 'activeProfiles');
+    for (const [key, profile] of Object.entries(activeProfiles)) {
+      expectTimeframeProfile(profile, `activeProfiles.${key}`);
+    }
+  }
   return data as unknown as BacktestResponse;
 }
 

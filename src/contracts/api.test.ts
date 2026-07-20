@@ -83,11 +83,32 @@ describe('dashboard API contracts', () => {
         penalties: ['sample'],
         note: '参考',
       },
+      timeframeProfile: {
+        tf: 'm5',
+        label: '5m 主决策',
+        role: 'trade',
+        decisionWeight: 0.45,
+        minSampleTrades: 20,
+        params: { entryThreshold: 0.5, holdBars: 12 },
+        calibration: {
+          winRate: 55,
+          profitProbability: 52.5,
+          sampleTrades: 10,
+          source: 'active-backtest',
+          totalReturn: 3,
+          maxDrawdown: 1,
+          sharpe: 0.8,
+          updatedAt: null,
+          note: '参考',
+        },
+        optimizeTime: null,
+      },
     });
     assert.equal(value.direction, 'long');
     assert.equal(value.rawConfidence, 65);
     assert.equal(value.backtestCalibration?.profitProbability, 52.5);
     assert.equal(value.confidenceCalibration?.indicatorAgreement, 0.6);
+    assert.equal(value.timeframeProfile?.role, 'trade');
   });
 
   it('accepts production backtest metric and trade names', () => {
@@ -132,8 +153,30 @@ describe('dashboard API contracts', () => {
       factorHistory: [],
       activeWeights: {},
       activeParams: {},
+      timeframeProfile: {
+        tf: 'm5',
+        label: '5m 主决策',
+        role: 'trade',
+        decisionWeight: 0.45,
+        minSampleTrades: 20,
+        params: { entryThreshold: 0.5, holdBars: 12 },
+        calibration: {
+          winRate: 40,
+          profitProbability: 48,
+          sampleTrades: 5,
+          source: 'active-backtest',
+          totalReturn: 1,
+          maxDrawdown: 2,
+          sharpe: 0.3,
+          updatedAt: null,
+          note: '参考',
+        },
+        optimizeTime: null,
+      },
+      activeProfiles: {},
     });
     assert.equal(value.metrics?.sharpeRatio, 0.3);
+    assert.equal(value.timeframeProfile?.tf, 'm5');
   });
 
   it('accepts the domain backtest response shape', () => {

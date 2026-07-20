@@ -70,6 +70,14 @@ import {
   BacktestCalibration,
 } from './src/domain/calibration';
 import {
+  createInitialTimeframeStates,
+  getTimeframeProfile,
+  normalizeProfileTimeframe,
+  summarizeTimeframeState,
+  TimeframeKey,
+  TimeframeState,
+} from './src/domain/timeframe-profile';
+import {
   DashboardSnapshot,
   isCompleteDashboardSnapshot,
   mergeBinanceIntoSnapshot,
@@ -2329,6 +2337,8 @@ app.post('/api/news/refresh', async (req, res) => {
 app.get('/api/factors', (req, res) => {
   try {
     const { tf, rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
+    const profileKey = normalizeProfileTimeframe(tf);
+    const profileState = getActiveTimeframeState(profileKey);
     const now = Math.floor(Date.now() / 1000);
     
     // Get Binance data as primary source
@@ -2361,7 +2371,8 @@ app.get('/api/factors', (req, res) => {
         rawConfidence: 0,
         confidence: 0,
         dataSource,
-        backtestCalibration: currentBacktestCalibration(),
+        timeframeProfile: summarizeTimeframeState(profileState),
+        backtestCalibration: currentBacktestCalibration(profileKey),
       });
     }
     
@@ -2411,9 +2422,9 @@ app.get('/api/factors', (req, res) => {
       newsPositive: (newsSentiment as any).positive || 0,
       newsNegative: (newsSentiment as any).negative || 0,
       newsTopHeadline: newsSentiment.headlines?.[0] || '',
-      weights: activeWeights,
+      weights: profileState.weights,
       hasRealVolume: dataSource === 'binance',
-      directionThreshold: activeParams.entryThreshold,
+      directionThreshold: profileState.params.entryThreshold * profileState.profile.entryThresholdMultiplier,
     });
     const rawConfidence = result.confidence;
     
@@ -2482,7 +2493,7 @@ app.get('/api/factors', (req, res) => {
       factors: result.factors,
       indicators: indicators.latest,
       currentPrice: latestClose,
-      backtestCalibration: currentBacktestCalibration(),
+      backtestCalibration: currentBacktestCalibration(profileKey),
     });
     const calibratedResult = {
       ...result,
@@ -2504,7 +2515,7 @@ app.get('/api/factors', (req, res) => {
       eventStatus: eventWindow.status,
       basisZScore: basis.zScore,
       atrPct,
-      entryThreshold: activeParams.entryThreshold,
+      entryThreshold: profileState.params.entryThreshold * profileState.profile.entryThresholdMultiplier,
       calibratedConfidence: confidenceCalibration.confidence,
     });
 
@@ -2512,7 +2523,8 @@ app.get('/api/factors', (req, res) => {
       tf,
       dataSource,
       ...calibratedResult,
-      backtestCalibration: currentBacktestCalibration(),
+      timeframeProfile: summarizeTimeframeState(profileState),
+      backtestCalibration: currentBacktestCalibration(profileKey),
       confidenceCalibration,
       strategy,
       marketContext: {
@@ -2548,22 +2560,34 @@ const DEFAULT_WEIGHTS = {
 };
 
 // Active optimized weights and params — used by strategy & factors API
-let activeWeights = { ...DEFAULT_WEIGHTS };
-let activeParams = { entryThreshold: 0.5, holdBars: 12, stopLossPct: 3.0, takeProfitPct: 5.0, leverage: 5 };
-let lastOptimizeTime = 0;
+let activeTimeframeStates = createInitialTimeframeStates(DEFAULT_WEIGHTS);
 let optimizeRunning = false;
-let activeCalibration: BacktestCalibration = buildBacktestCalibration(null);
 
-function currentBacktestCalibration(): BacktestCalibration {
-  return activeCalibration;
+function getActiveTimeframeState(tf: string | undefined | null): TimeframeState {
+  return activeTimeframeStates[normalizeProfileTimeframe(tf)];
 }
 
-function updateBacktestCalibration(metrics: BacktestMetrics | null | undefined): BacktestCalibration {
-  activeCalibration = buildBacktestCalibration(metrics, new Date().toISOString());
-  return activeCalibration;
+function currentBacktestCalibration(tf: string | undefined | null): BacktestCalibration {
+  return getActiveTimeframeState(tf).calibration;
 }
 
-function toDomainBacktestParams(params: Record<string, unknown>, weights: Record<string, number> = activeWeights): BacktestParams {
+function updateBacktestCalibration(tf: string | undefined | null, metrics: BacktestMetrics | null | undefined): BacktestCalibration {
+  const state = getActiveTimeframeState(tf);
+  state.calibration = buildBacktestCalibration(metrics, new Date().toISOString());
+  state.optimizeTime = Date.now();
+  return state.calibration;
+}
+
+function allTimeframeSummaries() {
+  return {
+    m1: summarizeTimeframeState(activeTimeframeStates.m1),
+    m5: summarizeTimeframeState(activeTimeframeStates.m5),
+    m15: summarizeTimeframeState(activeTimeframeStates.m15),
+    h1: summarizeTimeframeState(activeTimeframeStates.h1),
+  };
+}
+
+function toDomainBacktestParams(params: Record<string, unknown>, weights: Record<string, number>): BacktestParams {
   return {
     threshold: (params.entryThreshold ?? params.threshold) as number,
     holdBars: params.holdBars as number,
@@ -2571,7 +2595,7 @@ function toDomainBacktestParams(params: Record<string, unknown>, weights: Record
     takeProfitPct: params.takeProfitPct as number,
     leverage: params.leverage as number,
     weights: { ...weights },
-    timeframe: normalizeTimeframe((params.tf as string) || 'm5') as 'm1' | 'm5' | 'm15' | 'h1',
+    timeframe: normalizeProfileTimeframe((params.tf as string) || 'm5'),
     fxTicks: (params.fxTicks as any[]) || [],
   };
 }
@@ -2581,14 +2605,17 @@ function scoreBacktestResult(metrics: BacktestMetrics) {
     (metrics.winRate / 100) - metrics.maxDrawdown / 10;
 }
 
-async function autoOptimize() {
+async function autoOptimize(tfInput: string = 'm5') {
   if (optimizeRunning) return;
   optimizeRunning = true;
   try {
+    const profileKey = normalizeProfileTimeframe(tfInput);
+    const profileState = getActiveTimeframeState(profileKey);
+    const tfConfig = getTimeframeConfig(profileKey);
     const now = Math.floor(Date.now() / 1000);
-    const rangeSec = 7 * 86400;
+    const rangeSec = tfConfig.rangeSec;
     const ticks = selectRange.all(now - rangeSec, now) as TickData[];
-    const candles = ticks.length > 1 ? buildCandlesFromTicks(ticks, 300) : [];
+    const candles = ticks.length > 1 ? buildCandlesFromTicks(ticks, tfConfig.intervalSec) : [];
     const binanceWindow = selectBinanceRange.all(now - rangeSec, now) as BinanceTickData[];
     const sentimentData = selectSentimentRange.all(now - rangeSec, now) as BacktestSentimentRow[];
     const fxWindow = selectFxRange.all(now - rangeSec, now) as any[];
@@ -2609,19 +2636,19 @@ async function autoOptimize() {
 
     // Grid search on training set
     let bestScore = null;
-    let bestWeights = { ...activeWeights };
-    let bestParams = { ...activeParams };
+    let bestWeights = { ...profileState.weights };
+    let bestParams = { ...profileState.params };
 
-    const thresholds = [0.5, 0.8, 1.2, 1.6];
-    const holdOptions = [8, 12, 18, 24];
+    const thresholds = profileState.profile.thresholdCandidates;
+    const holdOptions = profileState.profile.holdBarsCandidates;
     const weightOptions = [0.3, 0.5, 0.7, 0.9];
     const factorKeys = Object.keys(DEFAULT_WEIGHTS);
 
     for (const th of thresholds) {
       for (const hold of holdOptions) {
         const result = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any,
-          toDomainBacktestParams({ entryThreshold: th, holdBars: hold, leverage: 5 }, DEFAULT_WEIGHTS));
-        if (result.metrics && result.metrics.totalTrades >= 3) {
+          toDomainBacktestParams({ ...profileState.params, entryThreshold: th, holdBars: hold, leverage: profileState.params.leverage, tf: profileKey, fxTicks: fxWindow }, profileState.weights));
+        if (result.metrics && result.metrics.totalTrades >= profileState.profile.minSampleTrades) {
           const score = scoreBacktestResult(result.metrics);
           if (bestScore == null || score > bestScore) {
             bestScore = score;
@@ -2633,7 +2660,7 @@ async function autoOptimize() {
 
     if (bestScore == null) {
       bestScore = 0;
-      bestParams = { ...activeParams };
+      bestParams = { ...profileState.params };
       console.log('[optimize] no eligible threshold/hold config, keeping active params');
     }
 
@@ -2642,10 +2669,10 @@ async function autoOptimize() {
       let bestForFactor = DEFAULT_WEIGHTS[key];
       let bestFactorScore = -Infinity;
       for (const w of weightOptions) {
-        const testWeights = { ...DEFAULT_WEIGHTS, [key]: w };
+        const testWeights = { ...profileState.weights, [key]: w };
         const result = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any,
-          toDomainBacktestParams({ ...bestParams, leverage: 5 }, testWeights));
-        if (result.metrics && result.metrics.totalTrades >= 3) {
+          toDomainBacktestParams({ ...bestParams, tf: profileKey, fxTicks: fxWindow }, testWeights));
+        if (result.metrics && result.metrics.totalTrades >= profileState.profile.minSampleTrades) {
           const score = scoreBacktestResult(result.metrics);
           if (score > bestFactorScore) {
             bestFactorScore = score;
@@ -2657,19 +2684,19 @@ async function autoOptimize() {
     }
 
     // Validate on training set
-    const optimizedParams = toDomainBacktestParams({ ...bestParams, leverage: 5 }, bestWeights);
+    const optimizedParams = toDomainBacktestParams({ ...bestParams, tf: profileKey, fxTicks: fxWindow }, bestWeights);
     const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, optimizedParams);
     // Validate on test set (out-of-sample)
     const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], optimizedParams);
     // Full dataset validation
     const fullResult = backtestEngine(candles, binanceWindow as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], optimizedParams);
 
-    activeWeights = bestWeights;
-    activeParams = { ...activeParams, ...bestParams };
-    lastOptimizeTime = Date.now();
-    updateBacktestCalibration(testResult.metrics);
+    profileState.weights = bestWeights;
+    profileState.params = { ...profileState.params, ...bestParams };
+    profileState.optimizeTime = Date.now();
+    updateBacktestCalibration(profileKey, testResult.metrics);
 
-    console.log(`[optimize] done | score=${bestScore.toFixed(2)} | th=${(bestParams as any).entryThreshold} hold=${(bestParams as any).holdBars}`);
+    console.log(`[optimize:${profileKey}] done | score=${bestScore.toFixed(2)} | th=${(bestParams as any).entryThreshold} hold=${(bestParams as any).holdBars}`);
     console.log(`[optimize] weights: ${Object.entries(bestWeights).map(([k,v]) => `${k}=${v}`).join(' ')}`);
     if (trainResult.metrics) {
       console.log(`[optimize] train: return=${trainResult.metrics.totalReturn}% win=${trainResult.metrics.winRate}% sharpe=${trainResult.metrics?.sharpe || 0}`);
@@ -2681,6 +2708,12 @@ async function autoOptimize() {
     console.error('[optimize] error:', err.message);
   } finally {
     optimizeRunning = false;
+  }
+}
+
+async function autoOptimizeAllTimeframes() {
+  for (const tf of ['m1', 'm5', 'm15', 'h1'] as TimeframeKey[]) {
+    await autoOptimize(tf);
   }
 }
 
@@ -2697,12 +2730,14 @@ app.get('/api/backtest', async (req, res) => {
   try {
     const tfConfig = getTimeframeConfig((req.query as any).tf || 'm5');
     const tf = tfConfig.tf;
+    const profileKey = normalizeProfileTimeframe(tf);
+    const profileState = getActiveTimeframeState(profileKey);
     const rangeSec = tfConfig.rangeSec;
     const intervalSec = tfConfig.intervalSec;
     const optimize = (req.query as any).optimize === 'true';
     let parsedParams;
     try {
-      parsedParams = parseBacktestParams(req.query as any, activeParams);
+      parsedParams = parseBacktestParams(req.query as any, profileState.params);
     } catch (err) {
       return res.status(400).json({
         error: {
@@ -2749,45 +2784,50 @@ app.get('/api/backtest', async (req, res) => {
     const testSentiment = sentimentData.filter(t => (t as any).ts > trainCandles[trainCandles.length - 1].time);
 
     if (optimize) {
-      await autoOptimize();
+      await autoOptimize(profileKey);
+      const optimizedState = getActiveTimeframeState(profileKey);
       // Run with optimization (closed-loop)
-      const optimizedParams = toDomainBacktestParams({ ...activeParams, leverage, tf, fxTicks: fxWindow }, activeWeights);
+      const optimizedParams = toDomainBacktestParams({ ...optimizedState.params, leverage, tf: profileKey, fxTicks: fxWindow }, optimizedState.weights);
       const fullResult = backtestWithOptimization(candles, binanceTicks as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], optimizedParams);
       const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, optimizedParams);
       const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], optimizedParams);
-      const calibration = updateBacktestCalibration(testResult.metrics);
+      const calibration = updateBacktestCalibration(profileKey, testResult.metrics);
       
       // Apply optimized weights if they improve performance
       if (fullResult.optimization?.optimizedMetrics?.sharpe > fullResult.metrics.sharpe + 0.1) {
-        Object.assign(activeWeights, fullResult.optimization.optimizedWeights);
-        lastOptimizeTime = Date.now();
+        Object.assign(optimizedState.weights, fullResult.optimization.optimizedWeights);
+        optimizedState.optimizeTime = Date.now();
         console.log(`[backtest] weights optimized: sharpe ${fullResult.metrics.sharpe} → ${fullResult.optimization.optimizedMetrics.sharpe}`);
       }
       
       res.json({
-        params: { tf, optimize: true, ...activeParams },
+        params: { tf, optimize: true, ...optimizedState.params },
         ...fullResult,
         train: { metrics: trainResult.metrics, trades: trainResult.trades?.length },
         test: { metrics: testResult.metrics, trades: testResult.trades?.length },
-        activeWeights: { ...activeWeights },
-        activeParams: { ...activeParams },
+        timeframeProfile: summarizeTimeframeState(optimizedState),
+        activeWeights: { ...optimizedState.weights },
+        activeParams: { ...optimizedState.params },
+        activeProfiles: allTimeframeSummaries(),
         backtestCalibration: calibration,
-        optimizeTime: lastOptimizeTime ? new Date(lastOptimizeTime).toISOString() : null,
+        optimizeTime: optimizedState.optimizeTime ? new Date(optimizedState.optimizeTime).toISOString() : null,
       });
     } else {
       const requestedParams = toDomainBacktestParams(
-        { entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage, tf, fxTicks: fxWindow }, activeWeights);
+        { entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage, tf: profileKey, fxTicks: fxWindow }, profileState.weights);
       const fullResult = backtestEngine(candles, binanceTicks as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], requestedParams);
       const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, requestedParams);
       const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], requestedParams);
-      const calibration = updateBacktestCalibration(testResult.metrics);
+      const calibration = updateBacktestCalibration(profileKey, testResult.metrics);
       res.json({
         params: { tf, entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage, dataSource },
         ...fullResult,
         train: { metrics: trainResult.metrics, trades: trainResult.trades?.length },
         test: { metrics: testResult.metrics, trades: testResult.trades?.length },
-        activeWeights: { ...activeWeights },
-        activeParams: { ...activeParams },
+        timeframeProfile: summarizeTimeframeState(profileState),
+        activeWeights: { ...profileState.weights },
+        activeParams: { ...profileState.params },
+        activeProfiles: allTimeframeSummaries(),
         backtestCalibration: calibration,
       });
     }
@@ -2963,9 +3003,9 @@ async function settleTriggeredPaperPositions() {
 }
 
 // ── Timers ──
-// Auto-optimize factor weights on startup (delayed) and every hour
-scheduler.setTimeout(() => { autoOptimize(); }, 5000);
-scheduler.setInterval(() => { autoOptimize(); }, 3600000);
+// Auto-optimize factor weights for every timeframe profile on startup (delayed) and every hour
+scheduler.setTimeout(() => { void autoOptimizeAllTimeframes(); }, 5000);
+scheduler.setInterval(() => { void autoOptimizeAllTimeframes(); }, 3600000);
 
 // Broadcast full data every 10s during market hours
 // Broadcast during market hours, pre-market, and after-hours (all active trading sessions)

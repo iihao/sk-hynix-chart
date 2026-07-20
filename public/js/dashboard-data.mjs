@@ -59,6 +59,9 @@ export function normalizeFactors(payload) {
   const confidenceCalibration = data.confidenceCalibration && typeof data.confidenceCalibration === 'object'
     ? data.confidenceCalibration
     : null;
+  const timeframeProfile = data.timeframeProfile && typeof data.timeframeProfile === 'object'
+    ? data.timeframeProfile
+    : null;
   const labels = { long: '做多', short: '做空', neutral: '中性' };
   return {
     factors: data.factors,
@@ -72,6 +75,7 @@ export function normalizeFactors(payload) {
     strategy: data.strategy && typeof data.strategy === 'object' ? data.strategy : null,
     backtestCalibration,
     confidenceCalibration,
+    timeframeProfile,
     rawConfidence,
     tf: normalizeDashboardTf(data.tf),
     direction: {
@@ -127,6 +131,12 @@ export function normalizeBacktest(payload) {
     weights: data.weights || data.optimizedWeights || data.activeWeights || null,
     costs: data.costs && typeof data.costs === 'object' ? data.costs : null,
     test: data.test && typeof data.test === 'object' ? data.test : null,
+    timeframeProfile: data.timeframeProfile && typeof data.timeframeProfile === 'object'
+      ? data.timeframeProfile
+      : null,
+    activeProfiles: data.activeProfiles && typeof data.activeProfiles === 'object'
+      ? data.activeProfiles
+      : null,
   };
 }
 

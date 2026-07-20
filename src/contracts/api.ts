@@ -64,6 +64,18 @@ export interface FactorsResponse {
   rawConfidence?: number;
   backtestCalibration?: BacktestCalibration;
   confidenceCalibration?: SignalConfidenceCalibration;
+  timeframeProfile?: TimeframeProfileState;
+}
+
+export interface TimeframeProfileState {
+  tf: 'm1' | 'm5' | 'm15' | 'h1' | string;
+  label: string;
+  role: 'scalp' | 'trade' | 'confirm' | string;
+  decisionWeight: number;
+  minSampleTrades: number;
+  params: Record<string, number>;
+  calibration: BacktestCalibration;
+  optimizeTime: string | null;
 }
 
 export interface BacktestCalibration {
@@ -189,6 +201,8 @@ export interface BacktestResponse {
   factorHistory?: unknown[];
   activeWeights?: Record<string, number>;
   activeParams?: Record<string, number>;
+  timeframeProfile?: TimeframeProfileState;
+  activeProfiles?: Record<string, TimeframeProfileState>;
   optimizedWeights?: Record<string, number>;
   weights?: Record<string, number>;
   error?: string;

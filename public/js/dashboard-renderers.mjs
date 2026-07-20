@@ -67,7 +67,20 @@ function createSignalRow(document, signal, isHistorical) {
     ? 'bull'
     : BEARISH_TYPES.has(signal.type) ? 'bear' : 'neut';
   row.className = `sig-row ${tone}${isHistorical ? ' sig-historical' : ''}`;
-  appendText(document, row, 'span', 'sig-dot', '');
+
+  // Direction arrow (big and clear)
+  const arrow = document.createElement('span');
+  arrow.className = 'sig-arrow';
+  if (tone === 'bull') {
+    arrow.textContent = '▲';
+  } else if (tone === 'bear') {
+    arrow.textContent = '▼';
+  } else {
+    arrow.textContent = '◆';
+  }
+  row.appendChild(arrow);
+
+  // Signal label
   appendText(document, row, 'span', 'sig-label', signal.label || '未命名信号');
   
   // Show trigger time if available
@@ -80,6 +93,7 @@ function createSignalRow(document, signal, isHistorical) {
     appendText(document, row, 'span', 'sig-time', `${MM}/${dd} ${hh}:${mm}`);
   }
   
+  // Strength indicator
   appendText(document, row, 'span', 'sig-strength', '*'.repeat(Math.max(1, Number(signal.strength) || 1)));
   return row;
 }

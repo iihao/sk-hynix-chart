@@ -193,7 +193,7 @@ export function generateStrategy(params: {
     eventStatus = 'clear',
     basisZScore = 0,
     atrPct = 0,
-    entryThreshold: requestedEntryThreshold = 0.5,
+    entryThreshold: requestedEntryThreshold = 0.3,
     calibratedConfidence,
   } = params;
 
