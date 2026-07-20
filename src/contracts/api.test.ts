@@ -61,8 +61,33 @@ describe('dashboard API contracts', () => {
       composite: 2,
       direction: 'long',
       confidence: 30,
+      rawConfidence: 65,
+      backtestCalibration: {
+        winRate: 55,
+        profitProbability: 52.5,
+        sampleTrades: 10,
+        source: 'active-backtest',
+        totalReturn: 3,
+        maxDrawdown: 1,
+        sharpe: 0.8,
+        updatedAt: null,
+        note: '参考',
+      },
+      confidenceCalibration: {
+        rawConfidence: 65,
+        confidence: 30,
+        backtestProbability: 52.5,
+        sampleTrades: 10,
+        factorAgreement: 0.7,
+        indicatorAgreement: 0.6,
+        penalties: ['sample'],
+        note: '参考',
+      },
     });
     assert.equal(value.direction, 'long');
+    assert.equal(value.rawConfidence, 65);
+    assert.equal(value.backtestCalibration?.profitProbability, 52.5);
+    assert.equal(value.confidenceCalibration?.indicatorAgreement, 0.6);
   });
 
   it('accepts production backtest metric and trade names', () => {

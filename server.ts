@@ -65,6 +65,11 @@ import {
   BacktestMetrics,
 } from './src/domain/backtest';
 import {
+  buildBacktestCalibration,
+  calibrateSignalConfidence,
+  BacktestCalibration,
+} from './src/domain/calibration';
+import {
   DashboardSnapshot,
   isCompleteDashboardSnapshot,
   mergeBinanceIntoSnapshot,
@@ -2349,7 +2354,15 @@ app.get('/api/factors', (req, res) => {
     const dataSource = binanceCandles.length >= 10 ? 'binance' : 'naver';
     
     if (candles.length < 2) {
-      return res.json({ factors: [], composite: 0, direction: 'neutral', confidence: 0, dataSource });
+      return res.json({
+        factors: [],
+        composite: 0,
+        direction: 'neutral',
+        rawConfidence: 0,
+        confidence: 0,
+        dataSource,
+        backtestCalibration: currentBacktestCalibration(),
+      });
     }
     
     const indicators = calculateAllIndicators(candles);
@@ -2400,7 +2413,9 @@ app.get('/api/factors', (req, res) => {
       newsTopHeadline: newsSentiment.headlines?.[0] || '',
       weights: activeWeights,
       hasRealVolume: dataSource === 'binance',
+      directionThreshold: activeParams.entryThreshold,
     });
+    const rawConfidence = result.confidence;
     
     // Calculate market context
     const nowMs = Date.now();
@@ -2460,10 +2475,25 @@ app.get('/api/factors', (req, res) => {
       regimeMode: regime.mode,
     });
 
+    const confidenceCalibration = calibrateSignalConfidence({
+      rawConfidence,
+      composite: result.composite,
+      direction: result.direction,
+      factors: result.factors,
+      indicators: indicators.latest,
+      currentPrice: latestClose,
+      backtestCalibration: currentBacktestCalibration(),
+    });
+    const calibratedResult = {
+      ...result,
+      rawConfidence,
+      confidence: confidenceCalibration.confidence,
+    };
+
     // Generate strategy recommendation
     const strategy = generateStrategy({
-      factors: result.factors,
-      composite: result.composite,
+      factors: calibratedResult.factors,
+      composite: calibratedResult.composite,
       indicators: indicators.latest,
       candles,
       support: indicators.support,
@@ -2474,12 +2504,16 @@ app.get('/api/factors', (req, res) => {
       eventStatus: eventWindow.status,
       basisZScore: basis.zScore,
       atrPct,
+      entryThreshold: activeParams.entryThreshold,
+      calibratedConfidence: confidenceCalibration.confidence,
     });
 
     res.json({
       tf,
       dataSource,
-      ...result,
+      ...calibratedResult,
+      backtestCalibration: currentBacktestCalibration(),
+      confidenceCalibration,
       strategy,
       marketContext: {
         koreaSession,
@@ -2515,9 +2549,19 @@ const DEFAULT_WEIGHTS = {
 
 // Active optimized weights and params — used by strategy & factors API
 let activeWeights = { ...DEFAULT_WEIGHTS };
-let activeParams = { entryThreshold: 0.3, holdBars: 12, stopLossPct: 3.0, takeProfitPct: 5.0, leverage: 5 };
+let activeParams = { entryThreshold: 0.5, holdBars: 12, stopLossPct: 3.0, takeProfitPct: 5.0, leverage: 5 };
 let lastOptimizeTime = 0;
 let optimizeRunning = false;
+let activeCalibration: BacktestCalibration = buildBacktestCalibration(null);
+
+function currentBacktestCalibration(): BacktestCalibration {
+  return activeCalibration;
+}
+
+function updateBacktestCalibration(metrics: BacktestMetrics | null | undefined): BacktestCalibration {
+  activeCalibration = buildBacktestCalibration(metrics, new Date().toISOString());
+  return activeCalibration;
+}
 
 function toDomainBacktestParams(params: Record<string, unknown>, weights: Record<string, number> = activeWeights): BacktestParams {
   return {
@@ -2568,7 +2612,7 @@ async function autoOptimize() {
     let bestWeights = { ...activeWeights };
     let bestParams = { ...activeParams };
 
-    const thresholds = [0.3, 0.5, 0.8, 1.2];
+    const thresholds = [0.5, 0.8, 1.2, 1.6];
     const holdOptions = [8, 12, 18, 24];
     const weightOptions = [0.3, 0.5, 0.7, 0.9];
     const factorKeys = Object.keys(DEFAULT_WEIGHTS);
@@ -2623,6 +2667,7 @@ async function autoOptimize() {
     activeWeights = bestWeights;
     activeParams = { ...activeParams, ...bestParams };
     lastOptimizeTime = Date.now();
+    updateBacktestCalibration(testResult.metrics);
 
     console.log(`[optimize] done | score=${bestScore.toFixed(2)} | th=${(bestParams as any).entryThreshold} hold=${(bestParams as any).holdBars}`);
     console.log(`[optimize] weights: ${Object.entries(bestWeights).map(([k,v]) => `${k}=${v}`).join(' ')}`);
@@ -2710,6 +2755,7 @@ app.get('/api/backtest', async (req, res) => {
       const fullResult = backtestWithOptimization(candles, binanceTicks as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], optimizedParams);
       const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, optimizedParams);
       const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], optimizedParams);
+      const calibration = updateBacktestCalibration(testResult.metrics);
       
       // Apply optimized weights if they improve performance
       if (fullResult.optimization?.optimizedMetrics?.sharpe > fullResult.metrics.sharpe + 0.1) {
@@ -2725,6 +2771,7 @@ app.get('/api/backtest', async (req, res) => {
         test: { metrics: testResult.metrics, trades: testResult.trades?.length },
         activeWeights: { ...activeWeights },
         activeParams: { ...activeParams },
+        backtestCalibration: calibration,
         optimizeTime: lastOptimizeTime ? new Date(lastOptimizeTime).toISOString() : null,
       });
     } else {
@@ -2733,6 +2780,7 @@ app.get('/api/backtest', async (req, res) => {
       const fullResult = backtestEngine(candles, binanceTicks as BacktestBinanceTick[], sentimentData as BacktestSentimentRow[], requestedParams);
       const trainResult = backtestEngine(trainCandles, trainBinance as any, trainSentiment as any, requestedParams);
       const testResult = backtestEngine(testCandles, testBinance as any, testSentiment as BacktestSentimentRow[], requestedParams);
+      const calibration = updateBacktestCalibration(testResult.metrics);
       res.json({
         params: { tf, entryThreshold, holdBars, stopLossPct, takeProfitPct, leverage, dataSource },
         ...fullResult,
@@ -2740,6 +2788,7 @@ app.get('/api/backtest', async (req, res) => {
         test: { metrics: testResult.metrics, trades: testResult.trades?.length },
         activeWeights: { ...activeWeights },
         activeParams: { ...activeParams },
+        backtestCalibration: calibration,
       });
     }
   } catch (err) {

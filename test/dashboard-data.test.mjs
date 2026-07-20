@@ -57,10 +57,23 @@ test('normalizes factor direction for display', () => {
 
 test('preserves supported factor context fields', () => {
   const marketContext = { atrPct: 2.1 };
+  const backtestCalibration = { profitProbability: 52.5, sampleTrades: 10 };
+  const confidenceCalibration = { indicatorAgreement: 0.7, penalties: [] };
   const result = normalizeFactors({
-    factors: [], composite: 0, direction: 'neutral', confidence: 0, marketContext,
+    factors: [],
+    composite: 0,
+    direction: 'neutral',
+    confidence: 42,
+    rawConfidence: 68,
+    marketContext,
+    backtestCalibration,
+    confidenceCalibration,
   });
   assert.deepEqual(result.marketContext, marketContext);
+  assert.deepEqual(result.backtestCalibration, backtestCalibration);
+  assert.deepEqual(result.confidenceCalibration, confidenceCalibration);
+  assert.equal(result.rawConfidence, 68);
+  assert.equal(result.direction.confidence, 42);
 });
 
 test('uses production backtest query names', () => {

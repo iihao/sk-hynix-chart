@@ -1,7 +1,7 @@
 // src/domain/strategy.ts
 // Strategy generation module
 
-import { Factor } from './factors';
+import { directionFromComposite, Factor } from './factors';
 import { IndicatorResult, SupportResistance } from './indicators';
 import { generateOperationAdvice, OperationAdvice, AdviceContext } from './advice';
 
@@ -177,6 +177,8 @@ export function generateStrategy(params: {
   eventStatus?: string;
   basisZScore?: number;
   atrPct?: number;
+  entryThreshold?: number;
+  calibratedConfidence?: number;
 }): Strategy {
   const {
     factors,
@@ -191,15 +193,12 @@ export function generateStrategy(params: {
     eventStatus = 'clear',
     basisZScore = 0,
     atrPct = 0,
+    entryThreshold: requestedEntryThreshold = 0.5,
+    calibratedConfidence,
   } = params;
 
   const len = candles.length;
   const currentPrice = candles[len - 1]?.close || 0;
-
-  // Determine direction
-  let direction: 'long' | 'short' | 'neutral' = 'neutral';
-  if (composite > 0.3) direction = 'long';
-  else if (composite < -0.3) direction = 'short';
 
   // Calculate consensus
   const positiveFactors = factors.filter(f => f.score > 0).length;
@@ -230,7 +229,11 @@ export function generateStrategy(params: {
   }
 
   // Entry calculation
-  const entryThreshold = 0.5 * regime.entryThresholdMultiplier;
+  const baseEntryThreshold = Number.isFinite(requestedEntryThreshold) && requestedEntryThreshold > 0
+    ? requestedEntryThreshold
+    : 0.5;
+  const entryThreshold = baseEntryThreshold * regime.entryThresholdMultiplier;
+  const direction = directionFromComposite(composite, entryThreshold);
   let entry = '';
   let entryNote = '';
 
@@ -287,8 +290,11 @@ export function generateStrategy(params: {
   if (Math.abs(basisZScore) > 2) warnings.push('基差偏离较大');
   if (eventStatus !== 'clear') warnings.push('事件窗口期间谨慎操作');
 
-  // Confidence
-  const confidence = Math.min(100, Math.round(Math.abs(composite) * 12 + consensus * 30));
+  // Confidence: prefer the backtest-calibrated value when supplied by the API layer.
+  const rawConfidence = Math.min(100, Math.round(Math.abs(composite) * 12 + consensus * 30));
+  const confidence = Number.isFinite(calibratedConfidence)
+    ? Math.max(0, Math.min(100, Math.round(calibratedConfidence as number)))
+    : rawConfidence;
 
   // Risk/Reward
   const riskReward = direction === 'long'

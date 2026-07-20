@@ -50,6 +50,15 @@ export function normalizeFactors(payload) {
   }
   const composite = asNumber(data.composite, 'composite');
   const confidence = asNumber(data.confidence, 'confidence');
+  const rawConfidence = data.rawConfidence == null
+    ? confidence
+    : asNumber(data.rawConfidence, 'rawConfidence');
+  const backtestCalibration = data.backtestCalibration && typeof data.backtestCalibration === 'object'
+    ? data.backtestCalibration
+    : null;
+  const confidenceCalibration = data.confidenceCalibration && typeof data.confidenceCalibration === 'object'
+    ? data.confidenceCalibration
+    : null;
   const labels = { long: '做多', short: '做空', neutral: '中性' };
   return {
     factors: data.factors,
@@ -61,6 +70,9 @@ export function normalizeFactors(payload) {
     risk: data.risk && typeof data.risk === 'object' ? data.risk : null,
     basis: data.basis && typeof data.basis === 'object' ? data.basis : null,
     strategy: data.strategy && typeof data.strategy === 'object' ? data.strategy : null,
+    backtestCalibration,
+    confidenceCalibration,
+    rawConfidence,
     tf: normalizeDashboardTf(data.tf),
     direction: {
       code: data.direction,

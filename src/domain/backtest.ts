@@ -274,7 +274,7 @@ function calculateFactorsAtPosition(
   }
 
   // FX factor
-  if (params.fxRate && params.fxRate > 0) {
+  if (params.fxRate && params.fxRate > 0 && params.prevFxRate && params.prevFxRate > 0) {
     factors.push(factorExchangeRate(params.fxRate, params.prevFxRate || params.fxRate));
   }
 

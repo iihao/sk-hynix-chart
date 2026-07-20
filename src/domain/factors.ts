@@ -53,6 +53,16 @@ export function calculateWeightedComposite(
   };
 }
 
+export function directionFromComposite(
+  composite: number,
+  threshold = 0.3,
+): 'long' | 'short' | 'neutral' {
+  const safeThreshold = Number.isFinite(threshold) && threshold > 0 ? threshold : 0.3;
+  if (composite > safeThreshold) return 'long';
+  if (composite < -safeThreshold) return 'short';
+  return 'neutral';
+}
+
 function clampScore(v: number): number {
   return Math.max(-10, Math.min(10, v));
 }
@@ -526,6 +536,7 @@ export function calculateAllFactors(params: {
   newsTopHeadline?: string;
   weights?: Record<string, number>;
   hasRealVolume?: boolean;
+  directionThreshold?: number;
 }): FactorResult {
   const omittedFactors: FactorResult['omittedFactors'] = [];
   const factors: Factor[] = [
@@ -575,13 +586,14 @@ export function calculateAllFactors(params: {
     ));
   }
   
-  const { composite, direction, confidence } = calculateWeightedComposite(factors, params.weights);
+  const { composite, confidence } = calculateWeightedComposite(factors, params.weights);
+  const roundedComposite = Math.round(composite * 10) / 10;
   
   return {
     factors,
     omittedFactors,
-    composite: Math.round(composite * 10) / 10,
-    direction,
+    composite: roundedComposite,
+    direction: directionFromComposite(composite, params.directionThreshold),
     confidence: Math.round(confidence),
   };
 }

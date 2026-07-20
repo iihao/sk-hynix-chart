@@ -396,14 +396,24 @@ async function updateFactors() {
         dirScore.textContent = data.direction.score.toFixed(1);
         dirScore.className = 'dir-score ' + data.direction.code;
       }
-      if (dirConf) dirConf.textContent = data.direction.confidence + '%';
+      if (dirConf) {
+        dirConf.textContent = data.direction.confidence + '%';
+        const calibration = data.confidenceCalibration;
+        dirConf.title = calibration
+          ? `回测校准置信度 ${calibration.confidence}%｜原始强度 ${calibration.rawConfidence}%｜技术确认 ${(calibration.indicatorAgreement * 100).toFixed(0)}%｜因子共振 ${(calibration.factorAgreement * 100).toFixed(0)}%`
+          : '原始因子置信度';
+      }
     }
     
     // Update direction reason
     const dirReason = $('dirReason');
     if (dirReason && data.factors && data.factors.length > 0) {
       const topFactor = data.factors.reduce((a, b) => Math.abs(a.score) > Math.abs(b.score) ? a : b);
-      dirReason.textContent = topFactor.label + ': ' + topFactor.detail;
+      const calibration = data.confidenceCalibration;
+      const calibrationText = calibration
+        ? `｜校准: 原始${calibration.rawConfidence}% 技术${(calibration.indicatorAgreement * 100).toFixed(0)}% 因子${(calibration.factorAgreement * 100).toFixed(0)}%`
+        : '';
+      dirReason.textContent = topFactor.label + ': ' + topFactor.detail + calibrationText;
     }
     
     renderMarketContext(document, $('marketContextArea'), data.marketContext);

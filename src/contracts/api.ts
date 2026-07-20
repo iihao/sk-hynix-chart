@@ -61,6 +61,32 @@ export interface FactorsResponse {
   composite: number;
   direction: 'long' | 'short' | 'neutral';
   confidence: number;
+  rawConfidence?: number;
+  backtestCalibration?: BacktestCalibration;
+  confidenceCalibration?: SignalConfidenceCalibration;
+}
+
+export interface BacktestCalibration {
+  winRate: number;
+  profitProbability: number;
+  sampleTrades: number;
+  source: 'active-backtest' | 'insufficient';
+  totalReturn: number;
+  maxDrawdown: number;
+  sharpe: number;
+  updatedAt: string | null;
+  note: string;
+}
+
+export interface SignalConfidenceCalibration {
+  rawConfidence: number;
+  confidence: number;
+  backtestProbability: number;
+  sampleTrades: number;
+  factorAgreement: number;
+  indicatorAgreement: number;
+  penalties: string[];
+  note: string;
 }
 
 export interface Factor {

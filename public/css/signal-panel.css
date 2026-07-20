@@ -166,7 +166,7 @@ body.signal-panel-open .signal-expand-strip { display: none; }
   transition: all 0.2s;
 }
 .dir-help::after {
-  content: '综合评分基于多因子加权：正值偏多，负值偏空，绝对值越大方向越明确。置信度反映因子一致性。';
+  content: '综合评分基于多因子加权：正值偏多，负值偏空。置信度=原始因子强度 + 技术指标确认 + 回测胜率/收益/回撤/样本量校准。';
   position: absolute;
   top: 100%;
   right: 0;

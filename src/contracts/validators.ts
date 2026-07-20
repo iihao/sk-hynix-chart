@@ -50,6 +50,37 @@ export function parseFactorsResponse(value: unknown): FactorsResponse {
   }
   expectNumber(data.composite, 'composite');
   expectNumber(data.confidence, 'confidence');
+  if (data.rawConfidence !== undefined) {
+    expectNumber(data.rawConfidence, 'rawConfidence');
+  }
+  if (data.backtestCalibration !== undefined) {
+    const calibration = expectObject(data.backtestCalibration, 'backtestCalibration');
+    expectNumber(calibration.winRate, 'backtestCalibration.winRate');
+    expectNumber(calibration.profitProbability, 'backtestCalibration.profitProbability');
+    expectNumber(calibration.sampleTrades, 'backtestCalibration.sampleTrades');
+    expectNumber(calibration.totalReturn, 'backtestCalibration.totalReturn');
+    expectNumber(calibration.maxDrawdown, 'backtestCalibration.maxDrawdown');
+    expectNumber(calibration.sharpe, 'backtestCalibration.sharpe');
+    if (!['active-backtest', 'insufficient'].includes(calibration.source)) {
+      throw new Error('Invalid API response: backtestCalibration.source');
+    }
+    if (calibration.updatedAt !== null && typeof calibration.updatedAt !== 'string') {
+      throw new Error('Invalid API response: backtestCalibration.updatedAt');
+    }
+  }
+  if (data.confidenceCalibration !== undefined) {
+    const calibration = expectObject(data.confidenceCalibration, 'confidenceCalibration');
+    expectNumber(calibration.rawConfidence, 'confidenceCalibration.rawConfidence');
+    expectNumber(calibration.confidence, 'confidenceCalibration.confidence');
+    expectNumber(calibration.backtestProbability, 'confidenceCalibration.backtestProbability');
+    expectNumber(calibration.sampleTrades, 'confidenceCalibration.sampleTrades');
+    expectNumber(calibration.factorAgreement, 'confidenceCalibration.factorAgreement');
+    expectNumber(calibration.indicatorAgreement, 'confidenceCalibration.indicatorAgreement');
+    expectArray(calibration.penalties, 'confidenceCalibration.penalties');
+    if (typeof calibration.note !== 'string') {
+      throw new Error('Invalid API response: confidenceCalibration.note');
+    }
+  }
   if (!['long', 'short', 'neutral'].includes(data.direction)) {
     throw new Error('Invalid API response: direction');
   }

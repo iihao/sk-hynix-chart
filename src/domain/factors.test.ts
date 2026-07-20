@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { calculateAllFactors, calculateWeightedComposite, Factor } from './factors';
+import { calculateAllFactors, calculateWeightedComposite, directionFromComposite, Factor } from './factors';
 
 describe('calculateWeightedComposite', () => {
   const factors: Factor[] = [
@@ -14,6 +14,12 @@ describe('calculateWeightedComposite', () => {
 
   it('allows a factor weight to be disabled', () => {
     assert.equal(calculateWeightedComposite(factors, { funding: 0 }).composite, 4);
+  });
+
+  it('keeps direction threshold configurable for backtest-calibrated signals', () => {
+    assert.equal(directionFromComposite(0.4, 0.5), 'neutral');
+    assert.equal(directionFromComposite(0.6, 0.5), 'long');
+    assert.equal(directionFromComposite(-0.6, 0.5), 'short');
   });
 });
 
