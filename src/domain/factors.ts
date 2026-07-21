@@ -42,9 +42,10 @@ export function calculateWeightedComposite(
   const factorConsensus = factors.length > 0 
     ? Math.max(positiveCount, negativeCount) / factors.length 
     : 0;
-  const confidence = Math.min(100, Math.round(
-    Math.abs(composite) * 12 + factorConsensus * 30
-  ));
+  // Scale composite to 0-50 range, consensus to 0-40 range
+  const compositeConfidence = Math.min(50, Math.abs(composite) * 40);
+  const consensusConfidence = factorConsensus * 40;
+  const confidence = Math.min(100, Math.round(compositeConfidence + consensusConfidence));
   
   return {
     composite,

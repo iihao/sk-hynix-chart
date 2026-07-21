@@ -173,3 +173,49 @@ body.stealth .fp-calc-btn.short {
   background: rgba(107,114,128,0.1);
   color: #6b7280;
 }
+
+/* ── Calc Toggle Button ── */
+body.stealth .calc-toggle {
+  background: #6b7280;
+  box-shadow: 0 2px 8px rgba(107,114,128,0.2);
+}
+body.stealth .calc-toggle:hover {
+  box-shadow: 0 4px 12px rgba(107,114,128,0.3);
+}
+
+/* ── Source Toggles ── */
+body.stealth .source-toggle.active {
+  background: rgba(107,114,128,0.08);
+  box-shadow: inset 0 0 0 1px rgba(107,114,128,0.28);
+}
+body.stealth .source-dot {
+  background: #6b7280 !important;
+  box-shadow: none !important;
+}
+
+/* ── Paper Terminal ── */
+body.stealth .paper-side.long.active {
+  background: #3b82f6;
+  color: #fff;
+}
+body.stealth .paper-side.short.active {
+  background: #6b7280;
+  color: #fff;
+}
+body.stealth .paper-submit {
+  background: #3b82f6;
+  color: #fff;
+}
+body.stealth .paper-badge.long {
+  color: #3b82f6;
+  background: rgba(59,130,246,0.12);
+}
+body.stealth .paper-position.long {
+  border-left-color: #3b82f6;
+}
+body.stealth .paper-terminal-mark b {
+  color: #3b82f6;
+}
+body.stealth .terminal-collapse-hint {
+  color: #4b5563;
+}

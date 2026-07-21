@@ -3,6 +3,7 @@
 // 核心原则: 因子驱动 → 简单语言 → 可追溯
 
 import { Factor } from './factors';
+import type { BacktestCalibration, SignalConfidenceCalibration } from './calibration';
 
 // ─── 新手友好接口 ────────────────────────────────
 
@@ -25,6 +26,50 @@ export interface OperationAdvice {
   warnings: string[];
   /** 驱动因子归因 (可选, 给进阶用户看) */
   drivers?: FactorDriver[];
+  /** 原始因子、技术确认、影响因子、回测和最终建议的完整决策链路 */
+  decisionTrace: DecisionTrace;
+}
+
+export interface DecisionTrace {
+  raw: {
+    direction: 'long' | 'short' | 'neutral';
+    composite: number;
+    confidence: number;
+    consensusPct: number;
+    summary: string;
+    topDrivers: FactorDriver[];
+  };
+  technical: {
+    verdict: 'confirm' | 'diverge' | 'neutral' | 'unknown';
+    agreementPct: number;
+    summary: string;
+    checks: string[];
+  };
+  impact: {
+    verdict: 'supportive' | 'conflicting' | 'neutral';
+    summary: string;
+    drivers: FactorDriver[];
+  };
+  backtest: {
+    verdict: 'tradable' | 'weak' | 'insufficient';
+    probability: number;
+    sampleTrades: number;
+    winRate: number;
+    totalReturn: number;
+    maxDrawdown: number;
+    sharpe: number;
+    summary: string;
+  };
+  final: {
+    action: string;
+    originalDirection: 'long' | 'short' | 'neutral';
+    finalDirection: 'long' | 'short' | 'neutral';
+    directionOverridden: boolean;
+    overrideReason: string;
+    confidence: number;
+    summary: string;
+    blockers: string[];
+  };
 }
 
 export interface EntryAdvice {
@@ -97,6 +142,8 @@ export interface AdviceContext {
   fundingRate: number;
   eventStatus: string;
   basisZScore: number;
+  backtestCalibration?: BacktestCalibration;
+  confidenceCalibration?: SignalConfidenceCalibration;
 }
 
 // ─── 工具函数 ──────────────────────────────────
@@ -120,6 +167,12 @@ function directionAction(d: 'long' | 'short' | 'neutral'): string {
   if (d === 'long') return '做多';
   if (d === 'short') return '做空';
   return '观望不动';
+}
+
+function directionLabel(d: 'long' | 'short' | 'neutral'): string {
+  if (d === 'long') return '偏多';
+  if (d === 'short') return '偏空';
+  return '中性';
 }
 
 /** 从因子列表中找到指定 category */
@@ -359,6 +412,118 @@ function buildDrivers(factors: Factor[]): FactorDriver[] {
   }));
 }
 
+function buildTechnicalChecks(ctx: AdviceContext): string[] {
+  const checks: string[] = [];
+  const sign = ctx.direction === 'long' ? 1 : ctx.direction === 'short' ? -1 : 0;
+  if (sign === 0) {
+    checks.push('原始方向为中性，技术指标只作为等待确认参考');
+  } else {
+    checks.push(`价格 ${ctx.currentPrice >= ctx.ma20 ? '高于' : '低于'} MA20(${round0(ctx.ma20)})`);
+  }
+  checks.push(`RSI ${ctx.rsi.toFixed(1)}：${ctx.rsi > 70 ? '超买，警惕回落' : ctx.rsi < 30 ? '超卖，警惕反弹' : '未处极端区间'}`);
+  checks.push(`波动率 ATR ${ctx.atrPct.toFixed(2)}%：${ctx.atrPct >= 3 ? '高波动，仓位需收缩' : '可控'}`);
+  return checks;
+}
+
+function buildDecisionTrace(
+  ctx: AdviceContext,
+  pattern: PatternResult,
+  finalDirection: 'long' | 'short' | 'neutral',
+  finalConfidence: number,
+  action: string,
+  warnings: string[],
+  drivers: FactorDriver[],
+): DecisionTrace {
+  const rawTopDrivers = drivers.slice(0, 3);
+  const calibration = ctx.confidenceCalibration;
+  const indicatorAgreement = calibration?.indicatorAgreement ?? 0;
+  const agreementPct = Math.round(indicatorAgreement * 100);
+  const technicalVerdict: DecisionTrace['technical']['verdict'] = ctx.direction === 'neutral'
+    ? 'neutral'
+    : !calibration
+      ? 'unknown'
+      : indicatorAgreement >= 0.55
+        ? 'confirm'
+        : indicatorAgreement < 0.35
+          ? 'diverge'
+          : 'neutral';
+
+  const impactCategories = new Set(['premium', 'funding', 'fx', 'lsRatio', 'takerVol', 'openInterest', 'lsTrend', 'whale', 'news']);
+  const impactDrivers = drivers.filter(d => impactCategories.has(d.category));
+  const impactScore = ctx.factors
+    .filter(f => impactCategories.has(f.category))
+    .reduce((sum, f) => sum + f.score * (f.weight || 1), 0);
+  const finalSign = finalDirection === 'long' ? 1 : finalDirection === 'short' ? -1 : 0;
+  const impactVerdict: DecisionTrace['impact']['verdict'] = finalSign === 0 || Math.abs(impactScore) < 0.5
+    ? 'neutral'
+    : impactScore * finalSign > 0
+      ? 'supportive'
+      : 'conflicting';
+
+  const bt = ctx.backtestCalibration;
+  const backtestVerdict: DecisionTrace['backtest']['verdict'] = !bt || bt.sampleTrades < 5
+    ? 'insufficient'
+    : bt.profitProbability >= 51 && bt.totalReturn >= 0 && bt.maxDrawdown < 15
+      ? 'tradable'
+      : 'weak';
+  const backtestSummary = bt
+    ? `回测概率${bt.profitProbability.toFixed(1)}%，样本${bt.sampleTrades}笔，收益${pct(bt.totalReturn)}，回撤${bt.maxDrawdown.toFixed(1)}%`
+    : '暂未接入有效回测样本，置信度按中性处理';
+
+  const directionOverridden = finalDirection !== ctx.direction;
+  const blockers: string[] = [];
+  if (ctx.eventStatus === 'freeze') blockers.push('事件冻结窗口');
+  if (ctx.atrPct >= 3) blockers.push('ATR 高波动');
+  if (Math.abs(ctx.basisZScore) >= 3) blockers.push('基差极端偏离');
+  if (calibration?.penalties?.length) blockers.push(`置信度惩罚：${calibration.penalties.join(', ')}`);
+
+  return {
+    raw: {
+      direction: ctx.direction,
+      composite: Math.round(ctx.composite * 10) / 10,
+      confidence: Math.round(ctx.confidence),
+      consensusPct: Math.round(ctx.consensus * 100),
+      summary: `原始因子综合分 ${ctx.composite.toFixed(1)}，方向${directionLabel(ctx.direction)}，因子共识${Math.round(ctx.consensus * 100)}%。`,
+      topDrivers: rawTopDrivers,
+    },
+    technical: {
+      verdict: technicalVerdict,
+      agreementPct,
+      summary: calibration
+        ? `技术确认度 ${agreementPct}%，用于校准置信度，不单独覆盖方向。`
+        : '缺少技术校准明细，仅展示 MA/RSI/ATR 状态。',
+      checks: buildTechnicalChecks(ctx),
+    },
+    impact: {
+      verdict: impactVerdict,
+      summary: impactDrivers.length
+        ? `影响因子对最终方向${impactVerdict === 'supportive' ? '形成支持' : impactVerdict === 'conflicting' ? '存在冲突' : '整体中性'}。`
+        : '暂无可用影响因子，主要依赖价格和技术链路。',
+      drivers: impactDrivers,
+    },
+    backtest: {
+      verdict: backtestVerdict,
+      probability: bt?.profitProbability ?? calibration?.backtestProbability ?? 50,
+      sampleTrades: bt?.sampleTrades ?? calibration?.sampleTrades ?? 0,
+      winRate: bt?.winRate ?? 0,
+      totalReturn: bt?.totalReturn ?? 0,
+      maxDrawdown: bt?.maxDrawdown ?? 0,
+      sharpe: bt?.sharpe ?? 0,
+      summary: backtestSummary,
+    },
+    final: {
+      action,
+      originalDirection: ctx.direction,
+      finalDirection,
+      directionOverridden,
+      overrideReason: directionOverridden ? pattern.reason : '',
+      confidence: Math.round(finalConfidence),
+      summary: `${action}｜${pattern.reason}｜置信度 ${Math.round(finalConfidence)}%${warnings.length ? `｜风险：${warnings[0]}` : ''}`,
+      blockers,
+    },
+  };
+}
+
 // ─── 主导因子模式识别 + 建议生成 ──────────────────
 
 interface PatternResult {
@@ -457,6 +622,47 @@ export function generateOperationAdvice(ctx: AdviceContext): OperationAdvice {
       position: { pct: 0, leverage: '1x', text: '不建议开仓' },
       warnings: ['数据不足, 请等待数据加载完成'],
       drivers: [],
+      decisionTrace: {
+        raw: {
+          direction: 'neutral',
+          composite: ctx.composite,
+          confidence: 0,
+          consensusPct: 0,
+          summary: '原始数据不足，无法形成方向。',
+          topDrivers: [],
+        },
+        technical: {
+          verdict: 'unknown',
+          agreementPct: 0,
+          summary: '技术指标数据不足。',
+          checks: [],
+        },
+        impact: {
+          verdict: 'neutral',
+          summary: '影响因子数据不足。',
+          drivers: [],
+        },
+        backtest: {
+          verdict: 'insufficient',
+          probability: 50,
+          sampleTrades: 0,
+          winRate: 0,
+          totalReturn: 0,
+          maxDrawdown: 0,
+          sharpe: 0,
+          summary: '无有效回测样本。',
+        },
+        final: {
+          action: '观望不动',
+          originalDirection: 'neutral',
+          finalDirection: 'neutral',
+          directionOverridden: false,
+          overrideReason: '',
+          confidence: 0,
+          summary: '数据不足，等待采集完成后再判断。',
+          blockers: ['数据不足'],
+        },
+      },
     };
   }
 
@@ -481,9 +687,11 @@ export function generateOperationAdvice(ctx: AdviceContext): OperationAdvice {
 
   // 7. 生成因子归因
   const drivers = buildDrivers(factors);
+  const action = directionAction(direction);
+  const decisionTrace = buildDecisionTrace(ctx, pattern, direction, patternConfidence, action, warnings, drivers);
 
   return {
-    action: directionAction(direction),
+    action,
     signalStrength: confidenceLabel(patternConfidence),
     confidence: Math.round(patternConfidence),
     reason: pattern.reason,
@@ -492,5 +700,6 @@ export function generateOperationAdvice(ctx: AdviceContext): OperationAdvice {
     position,
     warnings,
     drivers,
+    decisionTrace,
   };
 }

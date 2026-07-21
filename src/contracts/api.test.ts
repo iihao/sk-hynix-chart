@@ -82,6 +82,19 @@ describe('dashboard API contracts', () => {
         indicatorAgreement: 0.6,
         penalties: ['sample'],
         note: '参考',
+        debug: {
+          rawScore: 12,
+          backtestScore: 10,
+          sampleScore: 5,
+          performanceScore: 4,
+          drawdownScore: 8,
+          sharpeScore: 5,
+          factorScore: 6,
+          indicatorScore: 4,
+          signalBonus: 2,
+          penaltyDetails: [],
+          formula: 'raw + backtest',
+        },
       },
       timeframeProfile: {
         tf: 'm5',
@@ -103,11 +116,60 @@ describe('dashboard API contracts', () => {
         },
         optimizeTime: null,
       },
+      strategy: {
+        advice: {
+          decisionTrace: {
+            raw: {
+              direction: 'long',
+              composite: 2,
+              confidence: 30,
+              consensusPct: 100,
+              summary: '原始偏多',
+              topDrivers: [
+                { category: 'momentum', label: '动量', score: 2, contribution: '上涨' },
+              ],
+            },
+            technical: {
+              verdict: 'confirm',
+              agreementPct: 60,
+              summary: '技术确认',
+              checks: ['价格高于 MA20'],
+            },
+            impact: {
+              verdict: 'supportive',
+              summary: '影响因子支持',
+              drivers: [],
+            },
+            backtest: {
+              verdict: 'tradable',
+              probability: 52.5,
+              sampleTrades: 10,
+              winRate: 55,
+              totalReturn: 3,
+              maxDrawdown: 1,
+              sharpe: 0.8,
+              summary: '回测可交易',
+            },
+            final: {
+              action: '做多',
+              originalDirection: 'long',
+              finalDirection: 'long',
+              directionOverridden: false,
+              overrideReason: '',
+              confidence: 30,
+              summary: '做多',
+              blockers: [],
+            },
+          },
+        },
+      },
     });
     assert.equal(value.direction, 'long');
     assert.equal(value.rawConfidence, 65);
     assert.equal(value.backtestCalibration?.profitProbability, 52.5);
     assert.equal(value.confidenceCalibration?.indicatorAgreement, 0.6);
+    assert.equal(value.confidenceCalibration?.debug?.formula, 'raw + backtest');
+    assert.equal(value.strategy?.advice.decisionTrace?.technical.agreementPct, 60);
     assert.equal(value.timeframeProfile?.role, 'trade');
   });
 

@@ -73,6 +73,13 @@ function toggleCollapsible(id) {
   $(id).classList.toggle('open');
 }
 
+/* ── Paper Terminal Collapse ── */
+function toggleTerminalCollapse(event) {
+  // Don't collapse when clicking a tab button
+  if (event.target.closest('.paper-terminal-tab')) return;
+  $('paperTradingTerminal').classList.toggle('collapsed');
+}
+
 /* ── Stealth Toggle ── */
 function toggleStealth() {
   state.stealthMode = !state.stealthMode;
@@ -372,6 +379,88 @@ async function updateIndicators() {
 }
 
 /* ── Factors ── */
+function renderDecisionTrace(root, trace) {
+  if (!root || !trace) return;
+
+  const toneMap = {
+    long: 'long',
+    short: 'short',
+    neutral: 'neutral',
+    confirm: 'good',
+    supportive: 'good',
+    tradable: 'good',
+    diverge: 'bad',
+    conflicting: 'bad',
+    weak: 'bad',
+    unknown: 'warn',
+    insufficient: 'warn',
+  };
+  const verdictText = {
+    confirm: '确认',
+    diverge: '背离',
+    neutral: '中性',
+    unknown: '未知',
+    supportive: '支持',
+    conflicting: '冲突',
+    tradable: '可交易',
+    weak: '偏弱',
+    insufficient: '样本不足',
+    long: '偏多',
+    short: '偏空',
+  };
+  const section = document.createElement('div');
+  section.className = 'decision-trace';
+
+  const title = document.createElement('div');
+  title.className = 'decision-trace-title';
+  title.textContent = '决策链路';
+  section.appendChild(title);
+
+  const addStep = (name, verdict, summary, details = []) => {
+    const step = document.createElement('div');
+    step.className = 'decision-step';
+    const head = document.createElement('div');
+    head.className = 'decision-step-head';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'decision-step-name';
+    nameEl.textContent = name;
+    const badge = document.createElement('span');
+    badge.className = 'decision-step-badge tone-' + (toneMap[verdict] || 'neutral');
+    badge.textContent = verdictText[verdict] || verdict || '--';
+    head.append(nameEl, badge);
+    const summaryEl = document.createElement('div');
+    summaryEl.className = 'decision-step-summary';
+    summaryEl.textContent = summary || '--';
+    step.append(head, summaryEl);
+    if (details.length) {
+      const list = document.createElement('div');
+      list.className = 'decision-step-details';
+      for (const detail of details.slice(0, 4)) {
+        const item = document.createElement('span');
+        item.textContent = detail;
+        list.appendChild(item);
+      }
+      step.appendChild(list);
+    }
+    section.appendChild(step);
+  };
+
+  addStep('原始因子', trace.raw?.direction, trace.raw?.summary, (trace.raw?.topDrivers || []).map(d => `${d.label}:${d.score}`));
+  addStep('技术确认', trace.technical?.verdict, trace.technical?.summary, trace.technical?.checks || []);
+  addStep('影响因子', trace.impact?.verdict, trace.impact?.summary, (trace.impact?.drivers || []).map(d => d.contribution || d.label));
+  addStep('回测校准', trace.backtest?.verdict, trace.backtest?.summary, [
+    `概率 ${Number(trace.backtest?.probability || 50).toFixed(1)}%`,
+    `样本 ${trace.backtest?.sampleTrades || 0} 笔`,
+    `夏普 ${Number(trace.backtest?.sharpe || 0).toFixed(2)}`,
+  ]);
+  addStep('最终建议', trace.final?.finalDirection, trace.final?.summary, [
+    trace.final?.directionOverridden ? `方向覆盖：${trace.final.overrideReason}` : '未覆盖原始方向',
+    ...(trace.final?.blockers || []).map(b => `限制：${b}`),
+  ]);
+
+  root.appendChild(section);
+}
+
 async function updateFactors() {
   const signal = nextPanelSignal('factors');
   try {
@@ -380,9 +469,33 @@ async function updateFactors() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = normalizeFactors(await res.json());
     if (data.tf && data.tf !== state.activeTF) return;
-    
+
     renderFactors(document, $('factorTags'), data.factors, data.omittedFactors);
-    
+
+    // Render TF Profile Header
+    const tfProfile = data.timeframeProfile;
+    if (tfProfile) {
+      const tfIcon = $('tfIcon');
+      const tfLabel = $('tfLabel');
+      const tfRole = $('tfRole');
+      const tfWeight = $('tfWeight');
+
+      if (tfIcon) {
+        tfIcon.textContent = tfProfile.tf || '5m';
+        tfIcon.className = 'tf-icon role-' + (tfProfile.role || 'trade');
+      }
+      if (tfLabel) tfLabel.textContent = tfProfile.label || (tfProfile.tf + ' 分析');
+      if (tfRole) {
+        const roleLabels = { trade: '主决策', scalp: '入场节奏', confirm: '趋势确认' };
+        const cal = tfProfile.calibration;
+        const calText = cal && cal.sampleTrades > 0
+          ? ' · 回测' + cal.sampleTrades + '笔 · 胜率' + cal.winRate + '%'
+          : '';
+        tfRole.textContent = (roleLabels[tfProfile.role] || tfProfile.role) + calText;
+      }
+      if (tfWeight) tfWeight.textContent = Math.round((tfProfile.decisionWeight || 0) * 100) + '%';
+    }
+
     if (data.direction) {
       const dirText = $('dirText');
       const dirScore = $('dirScore');
@@ -404,18 +517,97 @@ async function updateFactors() {
           : '原始因子置信度';
       }
     }
-    
+
     // Update direction reason
     const dirReason = $('dirReason');
     if (dirReason && data.factors && data.factors.length > 0) {
       const topFactor = data.factors.reduce((a, b) => Math.abs(a.score) > Math.abs(b.score) ? a : b);
-      const calibration = data.confidenceCalibration;
-      const calibrationText = calibration
-        ? `｜校准: 原始${calibration.rawConfidence}% 技术${(calibration.indicatorAgreement * 100).toFixed(0)}% 因子${(calibration.factorAgreement * 100).toFixed(0)}%`
-        : '';
-      dirReason.textContent = topFactor.label + ': ' + topFactor.detail + calibrationText;
+      dirReason.textContent = topFactor.label + ': ' + topFactor.detail;
     }
-    
+
+    // Update calibration bar
+    const calibration = data.confidenceCalibration;
+    if (calibration) {
+      const calRaw = $('calRaw');
+      const calIndicator = $('calIndicator');
+      const calFactor = $('calFactor');
+      const calBacktest = $('calBacktest');
+
+      function toneForValue(val) {
+        if (val >= 60) return 'tone-green';
+        if (val >= 35) return 'tone-yellow';
+        return 'tone-red';
+      }
+
+      // DOM order inside .calibration-item is: dot -> label -> value.
+      // Target the real .calibration-dot (NOT previousElementSibling, which is the label).
+      function setCal(valueEl, val) {
+        if (!valueEl) return;
+        valueEl.textContent = val + '%';
+        const dot = valueEl.parentElement && valueEl.parentElement.querySelector('.calibration-dot');
+        if (dot) dot.className = 'calibration-dot ' + toneForValue(val);
+      }
+
+      setCal(calRaw, calibration.rawConfidence || 0);
+      setCal(calIndicator, Math.round((calibration.indicatorAgreement || 0) * 100));
+      setCal(calFactor, Math.round((calibration.factorAgreement || 0) * 100));
+      setCal(calBacktest, Math.round(calibration.backtestProbability || 50));
+
+      // Render debug breakdown
+      const debugEl = $('calibrationDebug');
+      if (debugEl && calibration.debug) {
+        const d = calibration.debug;
+        const parts = [
+          { label: '原始', value: d.rawScore, color: d.rawScore > 15 ? 'green' : d.rawScore > 8 ? 'yellow' : 'red' },
+          { label: '回测', value: d.backtestScore, color: d.backtestScore > 15 ? 'green' : d.backtestScore > 8 ? 'yellow' : 'red' },
+          { label: '样本', value: d.sampleScore, color: d.sampleScore > 10 ? 'green' : d.sampleScore > 5 ? 'yellow' : 'red' },
+          { label: '收益', value: d.performanceScore, color: d.performanceScore > 10 ? 'green' : d.performanceScore > 5 ? 'yellow' : 'red' },
+          { label: '回撤', value: d.drawdownScore, color: d.drawdownScore > 6 ? 'green' : d.drawdownScore > 3 ? 'yellow' : 'red' },
+          { label: '夏普', value: d.sharpeScore, color: d.sharpeScore > 6 ? 'green' : d.sharpeScore > 3 ? 'yellow' : 'red' },
+          { label: '因子', value: d.factorScore, color: d.factorScore > 6 ? 'green' : d.factorScore > 3 ? 'yellow' : 'red' },
+          { label: '技术', value: d.indicatorScore, color: d.indicatorScore > 5 ? 'green' : d.indicatorScore > 2 ? 'yellow' : 'red' },
+          { label: '强度', value: d.signalBonus, color: d.signalBonus > 2 ? 'green' : 'yellow' },
+        ];
+
+        debugEl.innerHTML = '';
+        debugEl.style.display = 'block';
+
+        const title = document.createElement('div');
+        title.className = 'debug-title';
+        title.textContent = '置信度分解';
+        debugEl.appendChild(title);
+
+        const grid = document.createElement('div');
+        grid.className = 'debug-grid';
+        for (const p of parts) {
+          const item = document.createElement('div');
+          item.className = 'debug-item';
+          item.innerHTML = `<span class="debug-label">${p.label}</span><span class="debug-val ${p.color}">${p.value.toFixed(1)}</span>`;
+          grid.appendChild(item);
+        }
+        debugEl.appendChild(grid);
+
+        // Show penalties if any
+        if (d.penaltyDetails && d.penaltyDetails.length > 0) {
+          const penaltyDiv = document.createElement('div');
+          penaltyDiv.className = 'debug-penalties';
+          for (const p of d.penaltyDetails) {
+            const row = document.createElement('div');
+            row.className = 'debug-penalty';
+            row.innerHTML = `<span class="debug-penalty-type">${p.type}</span><span class="debug-penalty-reason">${p.reason}</span><span class="debug-penalty-impact">-${p.impact}</span>`;
+            penaltyDiv.appendChild(row);
+          }
+          debugEl.appendChild(penaltyDiv);
+        }
+
+        // Show formula
+        const formulaDiv = document.createElement('div');
+        formulaDiv.className = 'debug-formula';
+        formulaDiv.textContent = d.formula;
+        debugEl.appendChild(formulaDiv);
+      }
+    }
+
     renderMarketContext(document, $('marketContextArea'), data.marketContext);
     $('riskArea').hidden = !data.risk;
     $('basisArea').hidden = !data.basis;
@@ -442,6 +634,21 @@ async function updateFactors() {
           ['风险收益比', s.riskReward || '--'],
         ].filter(([, v]) => v && v !== '--');
         stratCard.replaceChildren();
+        const toneFor = (key, value) => {
+          const v = String(value).toLowerCase();
+          if (key === '建议') {
+            if (/long|多/.test(v)) return 'tone-long';
+            if (/short|空/.test(v)) return 'tone-short';
+            return 'tone-neutral';
+          }
+          if (key === '风险') {
+            if (v === 'low') return 'tone-good';
+            if (v === 'medium') return 'tone-warn';
+            if (v === 'high') return 'tone-bad';
+          }
+          if (key === '入场' || key === '止损' || key === '止盈') return 'tone-price';
+          return '';
+        };
         for (const [key, value] of rows) {
           const row = document.createElement('div');
           row.className = 'strat-row';
@@ -449,7 +656,8 @@ async function updateFactors() {
           keyEl.className = 'strat-kw';
           keyEl.textContent = key;
           const valueEl = document.createElement('span');
-          valueEl.className = 'strat-val';
+          const tone = toneFor(key, value);
+          valueEl.className = 'strat-val' + (tone ? ' ' + tone : '');
           valueEl.textContent = String(value);
           row.append(keyEl, valueEl);
           stratCard.appendChild(row);
@@ -461,16 +669,45 @@ async function updateFactors() {
           if (evFor.length || evAgainst.length) {
             const evidence = document.createElement('div');
             evidence.className = 'strat-evidence';
-            const evForEl = document.createElement('div');
-            evForEl.className = 'strat-ev-for';
-            evForEl.textContent = `看多 (${evFor.length}): ${evFor.map(e => e.label || e).join(', ') || '无'}`;
-            const evAgainstEl = document.createElement('div');
-            evAgainstEl.className = 'strat-ev-against';
-            evAgainstEl.textContent = `看空 (${evAgainst.length}): ${evAgainst.map(e => e.label || e).join(', ') || '无'}`;
-            evidence.append(evForEl, evAgainstEl);
+            const buildGroup = (items, cls, title) => {
+              const group = document.createElement('div');
+              group.className = 'strat-ev-group ' + cls;
+              const head = document.createElement('div');
+              head.className = 'strat-ev-head';
+              const label = document.createElement('span');
+              label.className = 'strat-ev-title';
+              label.textContent = title;
+              const count = document.createElement('span');
+              count.className = 'strat-ev-count';
+              count.textContent = items.length;
+              head.append(label, count);
+              group.appendChild(head);
+              const chips = document.createElement('div');
+              chips.className = 'strat-ev-chips';
+              if (items.length) {
+                for (const item of items) {
+                  const chip = document.createElement('span');
+                  chip.className = 'strat-ev-chip';
+                  chip.textContent = item.label || item;
+                  chips.appendChild(chip);
+                }
+              } else {
+                const none = document.createElement('span');
+                none.className = 'strat-ev-none';
+                none.textContent = '无';
+                chips.appendChild(none);
+              }
+              group.appendChild(chips);
+              return group;
+            };
+            evidence.append(
+              buildGroup(evFor, 'for', '看多'),
+              buildGroup(evAgainst, 'against', '看空')
+            );
             stratCard.appendChild(evidence);
           }
         }
+        renderDecisionTrace(stratCard, s.advice?.decisionTrace);
       }
     } else if (stratEl) {
       stratEl.style.display = 'none';
@@ -516,13 +753,13 @@ async function runBacktest(optimize = false) {
   const hold = $('btHold')?.value || 12;
   const sl = $('btSL')?.value || 3.0;
   const tp = $('btTP')?.value || 5.0;
-  
+
   const btn = optimize ? $('btOptBtn') : $('btRunBtn');
   if (btn) {
     btn.textContent = '运行中...';
     btn.disabled = true;
   }
-  
+
   try {
     const params = buildBacktestQuery({
       threshold,
@@ -540,17 +777,17 @@ async function runBacktest(optimize = false) {
       showError(data.error);
       return;
     }
-    
+
     const metrics = data.metrics || {};
     const costs = data.costs || {};
-    
+
     // Update metrics
     const metricsEl = $('btMetricsArea');
     if (metricsEl) {
       metricsEl.innerHTML = '';
       const metricsDiv = document.createElement('div');
       metricsDiv.className = 'bt-metrics';
-      
+
       const createMetric = (label, value, color = '') => {
         const div = document.createElement('div');
         div.className = 'bt-metric';
@@ -564,9 +801,9 @@ async function runBacktest(optimize = false) {
         div.appendChild(valDiv);
         return div;
       };
-      
+
       const returnColor = metrics.totalReturn > 0 ? 'profit' : metrics.totalReturn < 0 ? 'loss' : '';
-      
+
       metricsDiv.appendChild(createMetric('交易数', String(metrics.totalTrades || 0)));
       metricsDiv.appendChild(createMetric('胜率', (metrics.winRate || 0).toFixed(1) + '%', metrics.winRate > 50 ? 'profit' : metrics.winRate < 40 ? 'loss' : ''));
       metricsDiv.appendChild(createMetric('收益', (metrics.totalReturn || 0).toFixed(2) + '%', returnColor));
@@ -585,18 +822,18 @@ async function runBacktest(optimize = false) {
         ? `测试集仅 ${testTrades} 笔交易，样本不足`
         : `测试集 ${testTrades} 笔 | 手续费 $${(costs.fees || 0).toFixed(2)} | 滑点 $${(costs.slippage || 0).toFixed(2)}`;
     }
-    
+
     // Update weights and optimization results
     const weightsEl = $('btWeightsArea');
     if (weightsEl) {
       weightsEl.innerHTML = '';
-      
+
       if (optimize && data.weights) {
         const title = document.createElement('div');
         title.className = 'bt-section-title';
         title.textContent = '优化权重';
         weightsEl.appendChild(title);
-        
+
         const weightsGrid = document.createElement('div');
         weightsGrid.className = 'bt-weights-grid';
         for (const [k, v] of Object.entries(data.weights)) {
@@ -608,86 +845,86 @@ async function runBacktest(optimize = false) {
         }
         weightsEl.appendChild(weightsGrid);
       }
-      
+
       // Display optimization results
       if (optimize && data.optimization) {
         const opt = data.optimization;
-        
+
         // Factor Analysis
         if (opt.factorAnalysis?.length > 0) {
           const section = document.createElement('div');
           section.className = 'bt-section';
-          
+
           const title = document.createElement('div');
           title.className = 'bt-section-title';
           title.textContent = '因子分析';
           section.appendChild(title);
-          
+
           for (const fa of opt.factorAnalysis.slice(0, 6)) {
             const row = document.createElement('div');
             row.className = 'bt-analysis-row';
-            
+
             const name = document.createElement('span');
             name.className = 'bt-analysis-name';
             name.textContent = fa.label;
-            
+
             const corr = document.createElement('span');
             corr.className = 'bt-analysis-corr ' + (fa.correlation > 0.1 ? 'bull' : fa.correlation < -0.1 ? 'bear' : '');
             corr.textContent = `r=${fa.correlation.toFixed(2)}`;
-            
+
             const sug = document.createElement('span');
             sug.className = 'bt-analysis-sug';
             sug.textContent = `→${(fa.suggestedWeight * 100).toFixed(0)}%`;
-            
+
             row.append(name, corr, sug);
             section.appendChild(row);
           }
           weightsEl.appendChild(section);
         }
-        
+
         // Signal Analysis
         if (opt.signalAnalysis?.length > 0) {
           const section = document.createElement('div');
           section.className = 'bt-section';
-          
+
           const title = document.createElement('div');
           title.className = 'bt-section-title';
           title.textContent = '信号效果';
           section.appendChild(title);
-          
+
           for (const sa of opt.signalAnalysis.slice(0, 5)) {
             const row = document.createElement('div');
             row.className = 'bt-analysis-row';
-            
+
             const name = document.createElement('span');
             name.className = 'bt-analysis-name';
             name.textContent = sa.label;
-            
+
             const win = document.createElement('span');
             win.className = 'bt-analysis-win ' + (sa.winRate > 55 ? 'bull' : sa.winRate < 40 ? 'bear' : '');
             win.textContent = `${sa.winRate.toFixed(0)}%`;
-            
+
             const action = document.createElement('span');
             const actionLabels = { keep: '保持', increase_threshold: '提高', decrease_threshold: '降低', disable: '禁用' };
             action.className = 'bt-analysis-action ' + (sa.suggestedAction === 'disable' ? 'bear' : '');
             action.textContent = actionLabels[sa.suggestedAction] || '';
-            
+
             row.append(name, win, action);
             section.appendChild(row);
           }
           weightsEl.appendChild(section);
         }
-        
+
         // Improvements
         if (opt.improvements?.length > 0) {
           const section = document.createElement('div');
           section.className = 'bt-section';
-          
+
           const title = document.createElement('div');
           title.className = 'bt-section-title';
           title.textContent = '优化建议';
           section.appendChild(title);
-          
+
           for (const imp of opt.improvements.slice(0, 5)) {
             const row = document.createElement('div');
             row.className = 'bt-improvement';
@@ -696,23 +933,23 @@ async function runBacktest(optimize = false) {
           }
           weightsEl.appendChild(section);
         }
-        
+
         // Comparison
         if (opt.currentMetrics && opt.optimizedMetrics) {
           const section = document.createElement('div');
           section.className = 'bt-section bt-comparison';
-          
+
           const title = document.createElement('div');
           title.className = 'bt-section-title';
           title.textContent = '优化对比';
           section.appendChild(title);
-          
+
           const rows = [
             ['收益', opt.currentMetrics.totalReturn, opt.optimizedMetrics.totalReturn, '%'],
             ['夏普', opt.currentMetrics.sharpe, opt.optimizedMetrics.sharpe, ''],
             ['胜率', opt.currentMetrics.winRate, opt.optimizedMetrics.winRate, '%'],
           ];
-          
+
           for (const [label, before, after, unit] of rows) {
             const row = document.createElement('div');
             row.className = 'bt-comp-row';
@@ -725,46 +962,46 @@ async function runBacktest(optimize = false) {
         }
       }
     }
-    
+
     // Update trades
     const tradesEl = $('btTradesArea');
     if (tradesEl && data.trades) {
       tradesEl.innerHTML = '';
-      
+
       const title = document.createElement('div');
       title.className = 'bt-section-title';
       title.textContent = `交易记录 (${data.trades.length}笔)`;
       tradesEl.appendChild(title);
-      
+
       for (const t of data.trades.slice(0, 10)) {
         const row = document.createElement('div');
         row.className = 'bt-trade ' + (t.pnlPct >= 0 ? 'profit' : 'loss');
-        
+
         const dir = document.createElement('span');
         dir.className = 'bt-trade-dir';
         dir.textContent = t.direction === 'long' ? '多' : '空';
-        
+
         const entry = document.createElement('span');
         entry.className = 'bt-trade-price';
         entry.textContent = fmtBtPrice(t.entry);
-        
+
         const arrow = document.createElement('span');
         arrow.className = 'bt-trade-arrow';
         arrow.textContent = '→';
-        
+
         const exit = document.createElement('span');
         exit.className = 'bt-trade-price';
         exit.textContent = fmtBtPrice(t.exit);
-        
+
         const pnl = document.createElement('span');
         pnl.className = 'bt-trade-pnl';
         pnl.textContent = `${t.pnlPct >= 0 ? '+' : ''}${t.pnlPct.toFixed(2)}%`;
-        
+
         const reason = document.createElement('span');
         reason.className = 'bt-trade-reason';
         const reasonLabels = { stopLoss: '止损', takeProfit: '止盈', timeout: '超时', signal: '信号' };
         reason.textContent = reasonLabels[t.exitReason] || '';
-        
+
         row.append(dir, entry, arrow, exit, pnl, reason);
         tradesEl.appendChild(row);
       }
@@ -862,6 +1099,7 @@ function toggleWideMode() {
 /* ── Expose to global scope for onclick handlers ── */
 window.toggleSignalPanel = toggleSignalPanel;
 window.toggleCollapsible = toggleCollapsible;
+window.toggleTerminalCollapse = toggleTerminalCollapse;
 window.toggleCalculator = toggleCalculator;
 window.toggleWideMode = toggleWideMode;
 window.fpSetDirection = fpSetDirection;

@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TF UI Preview</title>
+<style>
+:root {
+  --bg: #0b0e11;
+  --surface: #11161d;
+  --surface-raised: #181c24;
+  --card: #161a22;
+  --border: #2b3139;
+  --hover: #1e232a;
+  --text: #848e9c;
+  --text-bright: #eaecef;
+  --green: #0ecb81;
+  --red: #f6465d;
+  --yellow: #f0b90b;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font:12px var(--font); padding:20px; }
+
+.preview-container {
+  max-width: 320px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Direction Dashboard ── */
+.dir-dash {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+/* ── TF Profile Header (NEW) ── */
+.tf-profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: linear-gradient(135deg, rgba(14,203,129,0.06), rgba(246,70,93,0.06));
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+.tf-profile-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tf-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.tf-icon.trade { background: rgba(14,203,129,0.15); color: var(--green); }
+.tf-icon.scalp { background: rgba(240,185,11,0.15); color: var(--yellow); }
+.tf-icon.confirm { background: rgba(132,142,156,0.15); color: var(--text); }
+.tf-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+.tf-role {
+  font-size: 9px;
+  color: var(--text);
+  opacity: 0.7;
+  margin-top: 1px;
+}
+.tf-profile-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tf-weight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.tf-weight-label {
+  font-size: 9px;
+  color: var(--text);
+  opacity: 0.6;
+}
+.tf-weight-value {
+  font: 600 13px var(--mono);
+  color: var(--text-bright);
+}
+.tf-params {
+  display: flex;
+  gap: 6px;
+}
+.tf-param-chip {
+  padding: 2px 6px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 4px;
+  font-size: 9px;
+  color: var(--text);
+}
+.tf-param-chip b {
+  color: var(--text-bright);
+  font-family: var(--mono);
+}
+
+/* ── Gauge ── */
+.gauge-wrap { display: flex; justify-content: center; margin-bottom: 8px; }
+.dir-text {
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+.dir-text.long { color: var(--green); }
+.dir-text.short { color: var(--red); }
+.dir-text.neutral { color: var(--yellow); }
+.dir-vals {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-bottom: 8px;
+}
+.dir-val-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.dir-val-label {
+  font-size: 9px;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.dir-score {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+.dir-score.long { color: var(--green); }
+.dir-score.short { color: var(--red); }
+.dir-score.neutral { color: var(--yellow); }
+.dir-val-sep {
+  width: 1px;
+  background: linear-gradient(to bottom, transparent, var(--border), transparent);
+}
+.dir-reason {
+  font-size: 10px;
+  color: var(--text);
+  padding: 6px 0 0 8px;
+  line-height: 1.5;
+  border-left: 2px solid rgba(255,255,255,0.1);
+}
+
+/* ── Strategy ── */
+.strat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.strat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.strat-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.strat-dir-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 12px;
+  border-radius: 6px;
+  font-family: var(--mono);
+}
+.strat-dir-badge.long {
+  background: rgba(14,203,129,0.1);
+  color: var(--green);
+  border: 1px solid rgba(14,203,129,0.2);
+}
+.strat-dir-badge.short {
+  background: rgba(246,70,93,0.1);
+  color: var(--red);
+  border: 1px solid rgba(246,70,93,0.2);
+}
+.strat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  font-size: 11px;
+}
+.strat-row:last-child { border-bottom: none; }
+.strat-kw {
+  color: var(--text);
+  font-size: 10px;
+}
+.strat-val {
+  color: var(--text-bright);
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 11px;
+}
+.strat-val.green { color: var(--green); }
+.strat-val.red { color: var(--red); }
+.strat-val.yellow { color: var(--yellow); }
+
+/* ── Calibration Bar ── */
+.calibration-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 4px;
+  margin-top: 8px;
+  font-size: 9px;
+}
+.calibration-item {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.calibration-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+.calibration-dot.green { background: var(--green); }
+.calibration-dot.yellow { background: var(--yellow); }
+.calibration-dot.red { background: var(--red); }
+.calibration-label { color: var(--text); opacity: 0.7; }
+.calibration-value { color: var(--text-bright); font-family: var(--mono); }
+
+/* ── TF Tabs (for multi-view) ── */
+.tf-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.tf-tab {
+  flex: 1;
+  padding: 6px 8px;
+  text-align: center;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+.tf-tab:hover { background: var(--hover); }
+.tf-tab.active {
+  background: rgba(14,203,129,0.08);
+  border-color: rgba(14,203,129,0.2);
+}
+.tf-tab-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+.tf-tab-role {
+  font-size: 8px;
+  color: var(--text);
+  opacity: 0.6;
+}
+.tf-tab-arrow {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.tf-tab-arrow.up { color: var(--green); }
+.tf-tab-arrow.down { color: var(--red); }
+.tf-tab-arrow.flat { color: var(--text); opacity: 0.4; }
+
+/* ── Labels ── */
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  opacity: 0.6;
+}
+</style>
+</head>
+<body>
+
+<div class="preview-container">
+
+  <!-- Option A: TF Profile Header inside Direction Dashboard -->
+  <div class="section-label">方案 A：TF 标签嵌入方向趋势区</div>
+
+  <div class="dir-dash">
+    <!-- NEW: TF Profile Header -->
+    <div class="tf-profile-header">
+      <div class="tf-profile-left">
+        <div class="tf-icon trade">📊</div>
+        <div>
+          <div class="tf-label">5m 主决策</div>
+          <div class="tf-role">trade · 回测15笔 · 胜率60%</div>
+        </div>
+      </div>
+      <div class="tf-profile-right">
+        <div class="tf-weight">
+          <span class="tf-weight-label">决策权重</span>
+          <span class="tf-weight-value">45%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Existing Gauge -->
+    <div class="gauge-wrap">
+      <svg class="gauge-svg" width="120" height="72" viewBox="0 0 120 72">
+        <path d="M10,65 A50,50 0 0,1 30,25" stroke="var(--red)" stroke-width="7" fill="none" opacity="0.8"/>
+        <path d="M30,25 A50,50 0 0,1 90,25" stroke="var(--yellow)" stroke-width="7" fill="none" opacity="0.8"/>
+        <path d="M90,25 A50,50 0 0,1 110,65" stroke="var(--green)" stroke-width="7" fill="none" opacity="0.8"/>
+        <g transform="rotate(-15, 60, 65)">
+          <line x1="60" y1="65" x2="60" y2="24" stroke="var(--text-bright)" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="60" cy="65" r="4" fill="var(--text-bright)"/>
+        </g>
+        <text x="8" y="70" font-size="7" fill="var(--text)" opacity="0.5">做空</text>
+        <text x="52" y="8" font-size="7" fill="var(--text)" opacity="0.5">观望</text>
+        <text x="98" y="70" font-size="7" fill="var(--text)" opacity="0.5">做多</text>
+      </svg>
+    </div>
+    <div class="dir-text short">做空</div>
+    <div class="dir-vals">
+      <div class="dir-val-item">
+        <span class="dir-val-label">评分</span>
+        <span class="dir-score short">-0.5</span>
+      </div>
+      <div class="dir-val-sep"></div>
+      <div class="dir-val-item">
+        <span class="dir-val-label">置信度</span>
+        <span class="dir-score short">7%</span>
+      </div>
+    </div>
+    <div class="dir-reason">多空比: 散户过度看多(4.27)｜校准: 原始11% 技术45% 因子32%</div>
+
+    <!-- Calibration Bar -->
+    <div class="calibration-bar">
+      <div class="calibration-item">
+        <span class="calibration-dot yellow"></span>
+        <span class="calibration-label">原始</span>
+        <span class="calibration-value">11%</span>
+      </div>
+      <div class="calibration-item">
+        <span class="calibration-dot green"></span>
+        <span class="calibration-label">技术</span>
+        <span class="calibration-value">45%</span>
+      </div>
+      <div class="calibration-item">
+        <span class="calibration-dot yellow"></span>
+        <span class="calibration-label">因子</span>
+        <span class="calibration-value">32%</span>
+      </div>
+      <div class="calibration-item">
+        <span class="calibration-dot red"></span>
+        <span class="calibration-label">回测</span>
+        <span class="calibration-value">50%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B: TF Tabs for quick switching -->
+  <div class="section-label">方案 B：TF 快速切换标签</div>
+
+  <div class="tf-tabs">
+    <div class="tf-tab">
+      <div class="tf-tab-label">1m</div>
+      <div class="tf-tab-role">scalp</div>
+      <div class="tf-tab-arrow up">▲</div>
+    </div>
+    <div class="tf-tab active">
+      <div class="tf-tab-label">5m</div>
+      <div class="tf-tab-role">trade</div>
+      <div class="tf-tab-arrow down">▼</div>
+    </div>
+    <div class="tf-tab">
+      <div class="tf-tab-label">15m</div>
+      <div class="tf-tab-role">confirm</div>
+      <div class="tf-tab-arrow up">▲</div>
+    </div>
+    <div class="tf-tab">
+      <div class="tf-tab-label">1h</div>
+      <div class="tf-tab-role">confirm</div>
+      <div class="tf-tab-arrow flat">◆</div>
+    </div>
+  </div>
+
+  <!-- Strategy Card with TF params -->
+  <div class="section-label">操作建议（含 TF 参数）</div>
+
+  <div class="strat-card">
+    <div class="strat-header">
+      <span class="strat-title">5m 操作建议</span>
+      <span class="strat-dir-badge short">做空</span>
+    </div>
+    <div class="strat-row">
+      <span class="strat-kw">模式</span>
+      <span class="strat-val">震荡模式</span>
+    </div>
+    <div class="strat-row">
+      <span class="strat-kw">入场</span>
+      <span class="strat-val">反弹 1217</span>
+    </div>
+    <div class="strat-row">
+      <span class="strat-kw">止损</span>
+      <span class="strat-val red">1230 (2x ATR)</span>
+    </div>
+    <div class="strat-row">
+      <span class="strat-kw">止盈</span>
+      <span class="strat-val green">1175 (3x ATR)</span>
+    </div>
+    <div class="strat-row">
+      <span class="strat-kw">杠杆</span>
+      <span class="strat-val">5x</span>
+    </div>
+    <div class="strat-row">
+      <span class="strat-kw">盈亏比</span>
+      <span class="strat-val">1:1.5</span>
+    </div>
+    <div class="strat-row" style="border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px; padding-top: 6px;">
+      <span class="strat-kw">TF阈值</span>
+      <span class="strat-val yellow">0.50</span>
+    </div>
+    <div class="strat-row">
+      <span class="strat-kw">持仓周期</span>
+      <span class="strat-val">12 bars</span>
+    </div>
+    <div class="strat-row">
+      <span class="strat-kw">止损幅度</span>
+      <span class="strat-val">3.0%</span>
+    </div>
+  </div>
+
+  <!-- Summary: What each TF shows -->
+  <div class="section-label">各 TF 信号概览</div>
+
+  <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
+    <div style="display: grid; grid-template-columns: 40px 60px 1fr 50px; gap: 6px; font-size: 10px; padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.04);">
+      <span style="color: var(--text); opacity: 0.5;">TF</span>
+      <span style="color: var(--text); opacity: 0.5;">角色</span>
+      <span style="color: var(--text); opacity: 0.5;">最强因子</span>
+      <span style="color: var(--text); opacity: 0.5; text-align: right;">方向</span>
+    </div>
+    <div style="display: grid; grid-template-columns: 40px 60px 1fr 50px; gap: 6px; font-size: 10px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.02);">
+      <span style="color: var(--text-bright); font-weight: 600;">1m</span>
+      <span style="color: var(--yellow);">scalp</span>
+      <span style="color: var(--text);">动量 +2.0</span>
+      <span style="color: var(--green); text-align: right;">▲ 做多</span>
+    </div>
+    <div style="display: grid; grid-template-columns: 40px 60px 1fr 50px; gap: 6px; font-size: 10px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.02); background: rgba(14,203,129,0.03);">
+      <span style="color: var(--text-bright); font-weight: 600;">5m</span>
+      <span style="color: var(--green);">trade</span>
+      <span style="color: var(--text);">多空比 -3.0</span>
+      <span style="color: var(--red); text-align: right;">▼ 做空</span>
+    </div>
+    <div style="display: grid; grid-template-columns: 40px 60px 1fr 50px; gap: 6px; font-size: 10px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.02);">
+      <span style="color: var(--text-bright); font-weight: 600;">15m</span>
+      <span style="color: var(--text);">confirm</span>
+      <span style="color: var(--text);">庄家 +2.5</span>
+      <span style="color: var(--green); text-align: right;">▲ 做多</span>
+    </div>
+    <div style="display: grid; grid-template-columns: 40px 60px 1fr 50px; gap: 6px; font-size: 10px; padding: 6px 0;">
+      <span style="color: var(--text-bright); font-weight: 600;">1h</span>
+      <span style="color: var(--text);">confirm</span>
+      <span style="color: var(--text);">指标 -1.5</span>
+      <span style="color: var(--text); text-align: right; opacity: 0.4;">◆ 中性</span>
+    </div>
+    <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.04); font-size: 9px; color: var(--yellow);">
+      ⚠️ 信号分歧：1m/15m 做多 vs 5m 做空，建议观望
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

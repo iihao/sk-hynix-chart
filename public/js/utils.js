@@ -96,7 +96,7 @@ export function showError(msg) {
   const t = $('errorToast');
   if (t) {
     t.textContent = '数据获取失败: ' + msg;
-    t.style.display = 'block';
-    setTimeout(() => (t.style.display = 'none'), 8000);
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 8000);
   }
 }

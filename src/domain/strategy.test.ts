@@ -48,4 +48,35 @@ describe('generateStrategy', () => {
     assert.equal(result.confidence, 38);
     assert.equal(result.advice.confidence, 38);
   });
+
+  it('passes backtest and calibration context into the operation decision trace', () => {
+    const result = strategyFixture({
+      entryThreshold: 0.2,
+      calibratedConfidence: 62,
+      backtestCalibration: {
+        winRate: 53,
+        profitProbability: 52,
+        sampleTrades: 22,
+        source: 'active-backtest',
+        totalReturn: 5,
+        maxDrawdown: 6,
+        sharpe: 0.8,
+        updatedAt: null,
+        note: 'active',
+      },
+      confidenceCalibration: {
+        rawConfidence: 70,
+        confidence: 62,
+        backtestProbability: 52,
+        sampleTrades: 22,
+        factorAgreement: 0.7,
+        indicatorAgreement: 0.6,
+        penalties: [],
+        note: 'ok',
+      },
+    });
+
+    assert.equal(result.advice.decisionTrace.backtest.sampleTrades, 22);
+    assert.equal(result.advice.decisionTrace.technical.agreementPct, 60);
+  });
 });

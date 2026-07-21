@@ -23,6 +23,22 @@ export interface SignalConfidenceCalibration {
   indicatorAgreement: number;
   penalties: Array<'sample' | 'performance' | 'drawdown' | 'indicator_divergence'>;
   note: string;
+  /** Debug breakdown of each component */
+  debug?: CalibrationDebug;
+}
+
+export interface CalibrationDebug {
+  rawScore: number;
+  backtestScore: number;
+  sampleScore: number;
+  performanceScore: number;
+  drawdownScore: number;
+  sharpeScore: number;
+  factorScore: number;
+  indicatorScore: number;
+  signalBonus: number;
+  penaltyDetails: Array<{ type: string; reason: string; impact: number }>;
+  formula: string;
 }
 
 function round1(value: number): number {
@@ -157,7 +173,6 @@ export function calibrateSignalConfidence(params: {
   } = params;
 
   if (direction === 'neutral') {
-    // Even in neutral, show a reduced confidence based on signal strength
     const neutralConfidence = Math.round(clamp(rawConfidence * 0.4, 0, 30));
     return {
       rawConfidence: Math.round(clamp(rawConfidence, 0, 100)),
@@ -168,53 +183,77 @@ export function calibrateSignalConfidence(params: {
       indicatorAgreement: 0,
       penalties: [],
       note: '方向中性，置信度已大幅下调',
+      debug: {
+        rawScore: rawConfidence * 0.25,
+        backtestScore: 0, sampleScore: 0, performanceScore: 0,
+        drawdownScore: 0, sharpeScore: 0, factorScore: 0, indicatorScore: 0,
+        signalBonus: 0,
+        penaltyDetails: [],
+        formula: `neutral → raw(${rawConfidence}) * 0.4 = ${neutralConfidence}`,
+      },
     };
   }
 
   const factorAgreement = calculateFactorAgreement(factors, direction);
   const indicatorAgreement = calculateIndicatorAgreement({ indicators, currentPrice, direction });
-  const sampleQuality = clamp(backtestCalibration.sampleTrades / 30, 0, 1);
-  const backtestQuality = clamp((backtestCalibration.profitProbability - 45) / 25, 0, 1);
-  const performanceQuality = clamp((backtestCalibration.totalReturn + 5) / 20, 0, 1);
-  const drawdownQuality = clamp(1 - backtestCalibration.maxDrawdown / 20, 0, 1);
-  const sharpeQuality = clamp((backtestCalibration.sharpe + 0.5) / 2.5, 0, 1);
-  const signalStrength = clamp(Math.abs(composite) / 2, 0, 1);
+  const sampleQuality = clamp(backtestCalibration.sampleTrades / 25, 0, 1);
+  const backtestQuality = clamp((backtestCalibration.profitProbability - 42) / 22, 0, 1);
+  const performanceQuality = clamp((backtestCalibration.totalReturn + 4) / 18, 0, 1);
+  const drawdownQuality = clamp(1 - backtestCalibration.maxDrawdown / 22, 0, 1);
+  const sharpeQuality = clamp((backtestCalibration.sharpe + 0.4) / 2.2, 0, 1);
+  const signalStrength = clamp(Math.abs(composite) / 1.8, 0, 1);
 
-  const qualityScore = (
-    clamp(rawConfidence, 0, 100) * 0.25
-    + backtestQuality * 100 * 0.2
-    + sampleQuality * 100 * 0.12
-    + performanceQuality * 100 * 0.12
-    + drawdownQuality * 100 * 0.08
-    + sharpeQuality * 100 * 0.08
-    + factorAgreement * 100 * 0.08
-    + indicatorAgreement * 100 * 0.07
-  );
+  const rawScore = clamp(rawConfidence, 0, 100) * 0.25;
+  const backtestScore = backtestQuality * 100 * 0.2;
+  const sampleScore = sampleQuality * 100 * 0.12;
+  const performanceScore = performanceQuality * 100 * 0.12;
+  const drawdownScore = drawdownQuality * 100 * 0.08;
+  const sharpeScore = sharpeQuality * 100 * 0.08;
+  const factorScore = factorAgreement * 100 * 0.08;
+  const indicatorScore = indicatorAgreement * 100 * 0.07;
+  const signalBonus = signalStrength * 4;
+
+  const qualityScore = rawScore + backtestScore + sampleScore + performanceScore
+    + drawdownScore + sharpeScore + factorScore + indicatorScore;
 
   const penalties: SignalConfidenceCalibration['penalties'] = [];
+  const penaltyDetails: CalibrationDebug['penaltyDetails'] = [];
   let confidence = qualityScore;
+
   if (backtestCalibration.sampleTrades < 5) {
     penalties.push('sample');
-    confidence = Math.min(confidence, 58);
+    const cap = 58;
+    const impact = confidence - cap;
+    if (impact > 0) { penaltyDetails.push({ type: 'sample', reason: `样本<5笔，封顶${cap}%`, impact: Math.round(impact) }); }
+    confidence = Math.min(confidence, cap);
   } else if (backtestCalibration.sampleTrades < 15) {
     penalties.push('sample');
-    confidence = Math.min(confidence, 72);
+    const cap = 72;
+    const impact = confidence - cap;
+    if (impact > 0) { penaltyDetails.push({ type: 'sample', reason: `样本<15笔，封顶${cap}%`, impact: Math.round(impact) }); }
+    confidence = Math.min(confidence, cap);
   }
   if (backtestCalibration.totalReturn < 0 || backtestCalibration.sharpe < 0) {
     penalties.push('performance');
+    penaltyDetails.push({ type: 'performance', reason: `回测收益${backtestCalibration.totalReturn}%或夏普${backtestCalibration.sharpe}<0`, impact: 18 });
     confidence -= 18;
   }
-  if (backtestCalibration.maxDrawdown >= 12) {
+  if (backtestCalibration.maxDrawdown >= 15) {
     penalties.push('drawdown');
-    confidence -= Math.min(18, (backtestCalibration.maxDrawdown - 10) * 1.4);
+    const impact = Math.min(18, (backtestCalibration.maxDrawdown - 12) * 1.5);
+    penaltyDetails.push({ type: 'drawdown', reason: `最大回撤${backtestCalibration.maxDrawdown}%`, impact: Math.round(impact) });
+    confidence -= impact;
   }
-  if (indicatorAgreement < 0.4) {
+  if (indicatorAgreement < 0.35) {
     penalties.push('indicator_divergence');
-    confidence -= 14;
+    penaltyDetails.push({ type: 'indicator_divergence', reason: `技术确认${(indicatorAgreement * 100).toFixed(0)}%<35%`, impact: 20 });
+    confidence -= 20;
   }
 
-  confidence += signalStrength * 4;
+  confidence += signalBonus;
   confidence = clamp(Math.round(confidence), 0, 95);
+
+  const formula = `raw(${rawScore.toFixed(1)}) + backtest(${backtestScore.toFixed(1)}) + sample(${sampleScore.toFixed(1)}) + perf(${performanceScore.toFixed(1)}) + dd(${drawdownScore.toFixed(1)}) + sharpe(${sharpeScore.toFixed(1)}) + factor(${factorScore.toFixed(1)}) + ind(${indicatorScore.toFixed(1)}) + signal(${signalBonus.toFixed(1)}) - penalties(${penaltyDetails.reduce((s,p) => s + p.impact, 0)}) = ${confidence}`;
 
   return {
     rawConfidence: Math.round(clamp(rawConfidence, 0, 100)),
@@ -227,5 +266,18 @@ export function calibrateSignalConfidence(params: {
     note: penalties.length > 0
       ? `置信度已因 ${penalties.join(', ')} 保守下调`
       : '因子、技术指标与回测表现一致，置信度有效',
+    debug: {
+      rawScore: Math.round(rawScore * 10) / 10,
+      backtestScore: Math.round(backtestScore * 10) / 10,
+      sampleScore: Math.round(sampleScore * 10) / 10,
+      performanceScore: Math.round(performanceScore * 10) / 10,
+      drawdownScore: Math.round(drawdownScore * 10) / 10,
+      sharpeScore: Math.round(sharpeScore * 10) / 10,
+      factorScore: Math.round(factorScore * 10) / 10,
+      indicatorScore: Math.round(indicatorScore * 10) / 10,
+      signalBonus: Math.round(signalBonus * 10) / 10,
+      penaltyDetails,
+      formula,
+    },
   };
 }

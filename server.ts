@@ -104,6 +104,20 @@ import { createBinanceTransport } from './src/infrastructure/binance-transport';
 import { createScheduler } from './src/infrastructure/scheduler';
 import { createShutdownCoordinator } from './src/infrastructure/shutdown';
 // ══════════════════════════════════════════
+//  Global Error Handlers
+// ══════════════════════════════════════════
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[FATAL] Unhandled Rejection:', reason?.stack || reason);
+  // Give time for logs to flush, then exit for process manager to restart
+  setTimeout(() => process.exit(1), 2000);
+});
+
+process.on('uncaughtException', (err: Error) => {
+  console.error('[FATAL] Uncaught Exception:', err.stack || err.message);
+  setTimeout(() => process.exit(1), 2000);
+});
+
+// ══════════════════════════════════════════
 //  Project Root & Data Directory
 // ══════════════════════════════════════════
 const PROJECT_ROOT = process.cwd();
@@ -1395,6 +1409,40 @@ app.get('/api/quality', (req, res) => {
   }
 });
 
+// ── Endpoint TTL Cache ──
+interface CacheEntry { data: any; ts: number; }
+const endpointCache = new Map<string, CacheEntry>();
+const ENDPOINT_CACHE_TTL = 30_000; // 30s
+
+function getCached(key: string): any | null {
+  const entry = endpointCache.get(key);
+  if (entry && Date.now() - entry.ts < ENDPOINT_CACHE_TTL) return entry.data;
+  return null;
+}
+function setCache(key: string, data: any): void {
+  endpointCache.set(key, { data, ts: Date.now() });
+  // Evict stale entries periodically (avoid unbounded growth)
+  if (endpointCache.size > 50) {
+    const now = Date.now();
+    for (const [k, v] of endpointCache) {
+      if (now - v.ts > ENDPOINT_CACHE_TTL * 2) endpointCache.delete(k);
+    }
+  }
+}
+
+// ── Broadcast Data Cache (avoid re-fetching within 10s cycle) ──
+interface BroadcastCacheEntry { data: any; ts: number; }
+const broadcastCache = new Map<string, BroadcastCacheEntry>();
+const BROADCAST_CACHE_TTL = 8_000; // 8s (slightly less than 10s interval)
+
+async function getAllTimeframesCached(source: string) {
+  const cached = broadcastCache.get(source);
+  if (cached && Date.now() - cached.ts < BROADCAST_CACHE_TTL) return cached.data;
+  const data = await getAllTimeframes(source);
+  broadcastCache.set(source, { data, ts: Date.now() });
+  return data;
+}
+
 // ── SSE ──
 interface SSEClient {
   res: Response;
@@ -1444,10 +1492,10 @@ async function broadcast() {
     clientsBySource.set(client.source, list);
   }
   
-  // Broadcast to each group
+  // Broadcast to each group (uses cached data if fresh < 8s)
   for (const [source, group] of clientsBySource) {
     try {
-      const data = await getAllTimeframes(source);
+      const data = await getAllTimeframesCached(source);
       cacheDashboardSnapshot(data);
       const payload = `data: ${JSON.stringify(data)}\n\n`;
       group.forEach(c => c.res.write(payload));
@@ -1457,7 +1505,7 @@ async function broadcast() {
       // Fallback to naver for this group
       if (source !== 'naver') {
         try {
-          const data = await getAllTimeframes('naver');
+          const data = await getAllTimeframesCached('naver');
           (data as any).fallbackFrom = source;
           cacheDashboardSnapshot(data);
           const payload = `data: ${JSON.stringify(data)}\n\n`;
@@ -1668,7 +1716,14 @@ function findSupportResistance(candles: Array<{ high: number; low: number; close
 // Use new domain module for /api/indicators
 app.get('/api/indicators', (req, res) => {
   try {
-    const { tf, rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
+    const tf = (req.query as any).tf || 'm5';
+    // Cache by tf + 30s time bucket
+    const bucket = Math.floor(Date.now() / ENDPOINT_CACHE_TTL);
+    const cacheKey = `ind:${tf}:${bucket}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+
+    const { tf: _tf, rangeSec, intervalSec } = getTimeframeConfig(tf);
     const now = Math.floor(Date.now() / 1000);
     
     // Get Binance data as primary source
@@ -1769,7 +1824,7 @@ app.get('/api/indicators', (req, res) => {
     if (latest.macd.dif > latest.macd.dea && latest.macd.histogram > 0) macdState = 'bullish';
     else if (latest.macd.dif < latest.macd.dea && latest.macd.histogram < 0) macdState = 'bearish';
     
-    res.json({
+    const response = {
       tf,
       dataSource,
       rsi: result.rsi,
@@ -1795,7 +1850,9 @@ app.get('/api/indicators', (req, res) => {
       resistance: levels.spot.resistance,
       levels,
       times: candles.map(c => c.time),
-    });
+    };
+    setCache(cacheKey, response);
+    res.json(response);
   } catch (err) {
     console.error('[indicators] error:', err.message);
     res.status(500).json({ error: err.message });
@@ -2336,7 +2393,14 @@ app.post('/api/news/refresh', async (req, res) => {
 // Use new domain module for /api/factors
 app.get('/api/factors', (req, res) => {
   try {
-    const { tf, rangeSec, intervalSec } = getTimeframeConfig((req.query as any).tf || 'm5');
+    const tf = (req.query as any).tf || 'm5';
+    // Cache by tf + 30s time bucket
+    const bucket = Math.floor(Date.now() / ENDPOINT_CACHE_TTL);
+    const cacheKey = `fac:${tf}:${bucket}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+
+    const { tf: _tf, rangeSec, intervalSec } = getTimeframeConfig(tf);
     const profileKey = normalizeProfileTimeframe(tf);
     const profileState = getActiveTimeframeState(profileKey);
     const now = Math.floor(Date.now() / 1000);
@@ -2517,9 +2581,11 @@ app.get('/api/factors', (req, res) => {
       atrPct,
       entryThreshold: profileState.params.entryThreshold * profileState.profile.entryThresholdMultiplier,
       calibratedConfidence: confidenceCalibration.confidence,
+      backtestCalibration: currentBacktestCalibration(profileKey),
+      confidenceCalibration,
     });
 
-    res.json({
+    const response = {
       tf,
       dataSource,
       ...calibratedResult,
@@ -2542,7 +2608,9 @@ app.get('/api/factors', (req, res) => {
         risk,
         atrPct: Math.round(atrPct * 100) / 100,
       },
-    });
+    };
+    setCache(cacheKey, response);
+    res.json(response);
   } catch (err) {
     console.error('[factors] error:', err.message);
     res.status(500).json({ error: err.message });

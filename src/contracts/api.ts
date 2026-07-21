@@ -62,6 +62,7 @@ export interface FactorsResponse {
   direction: 'long' | 'short' | 'neutral';
   confidence: number;
   rawConfidence?: number;
+  strategy?: StrategyResponse;
   backtestCalibration?: BacktestCalibration;
   confidenceCalibration?: SignalConfidenceCalibration;
   timeframeProfile?: TimeframeProfileState;
@@ -99,6 +100,19 @@ export interface SignalConfidenceCalibration {
   indicatorAgreement: number;
   penalties: string[];
   note: string;
+  debug?: {
+    rawScore: number;
+    backtestScore: number;
+    sampleScore: number;
+    performanceScore: number;
+    drawdownScore: number;
+    sharpeScore: number;
+    factorScore: number;
+    indicatorScore: number;
+    signalBonus: number;
+    penaltyDetails: Array<{ type: string; reason: string; impact: number }>;
+    formula: string;
+  };
 }
 
 export interface Factor {
@@ -168,6 +182,49 @@ export interface OperationAdvice {
     score: number;
     contribution: string;
   }>;
+  decisionTrace?: DecisionTrace;
+}
+
+export interface DecisionTrace {
+  raw: {
+    direction: 'long' | 'short' | 'neutral';
+    composite: number;
+    confidence: number;
+    consensusPct: number;
+    summary: string;
+    topDrivers: OperationAdvice['drivers'];
+  };
+  technical: {
+    verdict: 'confirm' | 'diverge' | 'neutral' | 'unknown';
+    agreementPct: number;
+    summary: string;
+    checks: string[];
+  };
+  impact: {
+    verdict: 'supportive' | 'conflicting' | 'neutral';
+    summary: string;
+    drivers: OperationAdvice['drivers'];
+  };
+  backtest: {
+    verdict: 'tradable' | 'weak' | 'insufficient';
+    probability: number;
+    sampleTrades: number;
+    winRate: number;
+    totalReturn: number;
+    maxDrawdown: number;
+    sharpe: number;
+    summary: string;
+  };
+  final: {
+    action: string;
+    originalDirection: 'long' | 'short' | 'neutral';
+    finalDirection: 'long' | 'short' | 'neutral';
+    directionOverridden: boolean;
+    overrideReason: string;
+    confidence: number;
+    summary: string;
+    blockers: string[];
+  };
 }
 
 export interface RiskOverlay {

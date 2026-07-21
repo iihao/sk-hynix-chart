@@ -21,6 +21,85 @@ function expectNumber(value: unknown, field: string): number {
   return value;
 }
 
+function expectString(value: unknown, field: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`Invalid API response: ${field}`);
+  }
+  return value;
+}
+
+function expectBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`Invalid API response: ${field}`);
+  }
+  return value;
+}
+
+function expectDirection(value: unknown, field: string): void {
+  if (!['long', 'short', 'neutral'].includes(String(value))) {
+    throw new Error(`Invalid API response: ${field}`);
+  }
+}
+
+function expectFactorDrivers(value: unknown, field: string): void {
+  const drivers = expectArray(value, field);
+  for (const [index, driverValue] of drivers.entries()) {
+    const driver = expectObject(driverValue, `${field}[${index}]`);
+    expectString(driver.category, `${field}[${index}].category`);
+    expectString(driver.label, `${field}[${index}].label`);
+    expectNumber(driver.score, `${field}[${index}].score`);
+    expectString(driver.contribution, `${field}[${index}].contribution`);
+  }
+}
+
+function expectDecisionTrace(value: unknown, field: string): void {
+  const trace = expectObject(value, field);
+  const raw = expectObject(trace.raw, `${field}.raw`);
+  expectDirection(raw.direction, `${field}.raw.direction`);
+  expectNumber(raw.composite, `${field}.raw.composite`);
+  expectNumber(raw.confidence, `${field}.raw.confidence`);
+  expectNumber(raw.consensusPct, `${field}.raw.consensusPct`);
+  expectString(raw.summary, `${field}.raw.summary`);
+  expectFactorDrivers(raw.topDrivers, `${field}.raw.topDrivers`);
+
+  const technical = expectObject(trace.technical, `${field}.technical`);
+  if (!['confirm', 'diverge', 'neutral', 'unknown'].includes(String(technical.verdict))) {
+    throw new Error(`Invalid API response: ${field}.technical.verdict`);
+  }
+  expectNumber(technical.agreementPct, `${field}.technical.agreementPct`);
+  expectString(technical.summary, `${field}.technical.summary`);
+  expectArray(technical.checks, `${field}.technical.checks`);
+
+  const impact = expectObject(trace.impact, `${field}.impact`);
+  if (!['supportive', 'conflicting', 'neutral'].includes(String(impact.verdict))) {
+    throw new Error(`Invalid API response: ${field}.impact.verdict`);
+  }
+  expectString(impact.summary, `${field}.impact.summary`);
+  expectFactorDrivers(impact.drivers, `${field}.impact.drivers`);
+
+  const backtest = expectObject(trace.backtest, `${field}.backtest`);
+  if (!['tradable', 'weak', 'insufficient'].includes(String(backtest.verdict))) {
+    throw new Error(`Invalid API response: ${field}.backtest.verdict`);
+  }
+  expectNumber(backtest.probability, `${field}.backtest.probability`);
+  expectNumber(backtest.sampleTrades, `${field}.backtest.sampleTrades`);
+  expectNumber(backtest.winRate, `${field}.backtest.winRate`);
+  expectNumber(backtest.totalReturn, `${field}.backtest.totalReturn`);
+  expectNumber(backtest.maxDrawdown, `${field}.backtest.maxDrawdown`);
+  expectNumber(backtest.sharpe, `${field}.backtest.sharpe`);
+  expectString(backtest.summary, `${field}.backtest.summary`);
+
+  const final = expectObject(trace.final, `${field}.final`);
+  expectString(final.action, `${field}.final.action`);
+  expectDirection(final.originalDirection, `${field}.final.originalDirection`);
+  expectDirection(final.finalDirection, `${field}.final.finalDirection`);
+  expectBoolean(final.directionOverridden, `${field}.final.directionOverridden`);
+  expectString(final.overrideReason, `${field}.final.overrideReason`);
+  expectNumber(final.confidence, `${field}.final.confidence`);
+  expectString(final.summary, `${field}.final.summary`);
+  expectArray(final.blockers, `${field}.final.blockers`);
+}
+
 function expectTimeframeProfile(value: unknown, field: string): void {
   const profile = expectObject(value, field);
   if (typeof profile.tf !== 'string') throw new Error(`Invalid API response: ${field}.tf`);
@@ -90,9 +169,32 @@ export function parseFactorsResponse(value: unknown): FactorsResponse {
     if (typeof calibration.note !== 'string') {
       throw new Error('Invalid API response: confidenceCalibration.note');
     }
+    if (calibration.debug !== undefined) {
+      const debug = expectObject(calibration.debug, 'confidenceCalibration.debug');
+      expectNumber(debug.rawScore, 'confidenceCalibration.debug.rawScore');
+      expectNumber(debug.backtestScore, 'confidenceCalibration.debug.backtestScore');
+      expectNumber(debug.sampleScore, 'confidenceCalibration.debug.sampleScore');
+      expectNumber(debug.performanceScore, 'confidenceCalibration.debug.performanceScore');
+      expectNumber(debug.drawdownScore, 'confidenceCalibration.debug.drawdownScore');
+      expectNumber(debug.sharpeScore, 'confidenceCalibration.debug.sharpeScore');
+      expectNumber(debug.factorScore, 'confidenceCalibration.debug.factorScore');
+      expectNumber(debug.indicatorScore, 'confidenceCalibration.debug.indicatorScore');
+      expectNumber(debug.signalBonus, 'confidenceCalibration.debug.signalBonus');
+      expectArray(debug.penaltyDetails, 'confidenceCalibration.debug.penaltyDetails');
+      expectString(debug.formula, 'confidenceCalibration.debug.formula');
+    }
   }
   if (data.timeframeProfile !== undefined) {
     expectTimeframeProfile(data.timeframeProfile, 'timeframeProfile');
+  }
+  if (data.strategy !== undefined) {
+    const strategy = expectObject(data.strategy, 'strategy');
+    if (strategy.advice !== undefined) {
+      const advice = expectObject(strategy.advice, 'strategy.advice');
+      if (advice.decisionTrace !== undefined) {
+        expectDecisionTrace(advice.decisionTrace, 'strategy.advice.decisionTrace');
+      }
+    }
   }
   if (!['long', 'short', 'neutral'].includes(data.direction)) {
     throw new Error('Invalid API response: direction');

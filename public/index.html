@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SK Hynix 000660.KS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="/vendor/lightweight-charts.standalone.production.js"></script>
   <link rel="stylesheet" href="/css/main.css">
   <link rel="stylesheet" href="/css/chart.css">
@@ -143,7 +146,7 @@
 
       <!-- Paper Trading Terminal -->
       <div class="paper-terminal" id="paperTradingTerminal">
-        <div class="paper-terminal-tabs">
+        <div class="paper-terminal-tabs" onclick="toggleTerminalCollapse(event)">
           <button class="paper-terminal-tab active" data-paper-tab="positions" onclick="paperSwitchTab('positions')">仓位(<span id="paperPositionCount">0</span>)</button>
           <button class="paper-terminal-tab" data-paper-tab="openOrders" onclick="paperSwitchTab('openOrders')">当前委托(0)</button>
           <button class="paper-terminal-tab" data-paper-tab="orderHistory" onclick="paperSwitchTab('orderHistory')">历史委托</button>
@@ -154,6 +157,7 @@
           <button class="paper-terminal-tab" data-paper-tab="assets" onclick="paperSwitchTab('assets')">资产</button>
           <div class="paper-terminal-spacer"></div>
           <span class="paper-terminal-mark">SKHYNIXUSDT <b id="paperMarkPrice">--</b></span>
+          <span class="terminal-collapse-hint">▼</span>
         </div>
         <div class="paper-terminal-body">
           <div class="paper-terminal-pane active" data-paper-pane="positions">
@@ -240,6 +244,22 @@
             </div>
             <div class="collapsible-body">
               <div class="dir-dash" id="dirDash">
+                <!-- TF Profile Header -->
+                <div class="tf-profile-header" id="tfProfileHeader">
+                  <div class="tf-profile-left">
+                    <div class="tf-icon" id="tfIcon">5m</div>
+                    <div>
+                      <div class="tf-label" id="tfLabel">5m 主决策</div>
+                      <div class="tf-role" id="tfRole">trade</div>
+                    </div>
+                  </div>
+                  <div class="tf-profile-right">
+                    <div class="tf-weight">
+                      <span class="tf-weight-label">权重</span>
+                      <span class="tf-weight-value" id="tfWeight">45%</span>
+                    </div>
+                  </div>
+                </div>
                 <div class="dir-help" id="dirHelp">?</div>
                 <div class="gauge-wrap">
                   <svg class="gauge-svg" width="120" height="72" viewBox="0 0 120 72">
@@ -269,6 +289,31 @@
                   </div>
                 </div>
                 <div class="dir-reason" id="dirReason">加载中...</div>
+                <!-- Calibration Bar -->
+                <div class="calibration-bar" id="calibrationBar">
+                  <div class="calibration-item">
+                    <span class="calibration-dot"></span>
+                    <span class="calibration-label">原始</span>
+                    <span class="calibration-value" id="calRaw">--</span>
+                  </div>
+                  <div class="calibration-item">
+                    <span class="calibration-dot"></span>
+                    <span class="calibration-label">技术</span>
+                    <span class="calibration-value" id="calIndicator">--</span>
+                  </div>
+                  <div class="calibration-item">
+                    <span class="calibration-dot"></span>
+                    <span class="calibration-label">因子</span>
+                    <span class="calibration-value" id="calFactor">--</span>
+                  </div>
+                  <div class="calibration-item">
+                    <span class="calibration-dot"></span>
+                    <span class="calibration-label">回测</span>
+                    <span class="calibration-value" id="calBacktest">--</span>
+                  </div>
+                </div>
+                <!-- Debug Breakdown -->
+                <div class="debug-panel" id="calibrationDebug" style="display:none;"></div>
               </div>
             </div>
           </div>

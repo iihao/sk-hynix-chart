@@ -4,6 +4,7 @@
 import { directionFromComposite, Factor } from './factors';
 import { IndicatorResult, SupportResistance } from './indicators';
 import { generateOperationAdvice, OperationAdvice, AdviceContext } from './advice';
+import type { BacktestCalibration, SignalConfidenceCalibration } from './calibration';
 
 export interface Strategy {
   direction: 'long' | 'short' | 'neutral';
@@ -179,6 +180,8 @@ export function generateStrategy(params: {
   atrPct?: number;
   entryThreshold?: number;
   calibratedConfidence?: number;
+  backtestCalibration?: BacktestCalibration;
+  confidenceCalibration?: SignalConfidenceCalibration;
 }): Strategy {
   const {
     factors,
@@ -195,6 +198,8 @@ export function generateStrategy(params: {
     atrPct = 0,
     entryThreshold: requestedEntryThreshold = 0.3,
     calibratedConfidence,
+    backtestCalibration,
+    confidenceCalibration,
   } = params;
 
   const len = candles.length;
@@ -324,6 +329,8 @@ export function generateStrategy(params: {
     fundingRate,
     eventStatus,
     basisZScore,
+    backtestCalibration,
+    confidenceCalibration,
   };
   const advice = generateOperationAdvice(adviceCtx);
 

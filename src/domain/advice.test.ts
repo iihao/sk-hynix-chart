@@ -35,6 +35,7 @@ describe('generateOperationAdvice', () => {
     assert.equal(advice.action, '观望不动');
     assert.equal(advice.signalStrength, '无');
     assert.equal(advice.confidence, 0);
+    assert.equal(advice.decisionTrace.final.action, '观望不动');
   });
 
   it('returns "观望不动" when currentPrice is 0', () => {
@@ -79,6 +80,9 @@ describe('generateOperationAdvice', () => {
       }));
       assert.equal(advice.action, '做空');
       assert.ok(advice.reason.includes('溢价'));
+      assert.equal(advice.decisionTrace.raw.direction, 'neutral');
+      assert.equal(advice.decisionTrace.final.directionOverridden, true);
+      assert.ok(advice.decisionTrace.final.overrideReason.includes('溢价'));
     });
 
     it('generates 做多 advice when premium score <= -3', () => {
@@ -297,6 +301,56 @@ describe('generateOperationAdvice', () => {
       const whaleDriver = advice.drivers!.find(d => d.category === 'whale');
       assert.ok(whaleDriver);
       assert.ok(whaleDriver.contribution.length > 0);
+    });
+  });
+
+  describe('decision trace', () => {
+    it('explains raw, technical, impact, backtest and final decision chains', () => {
+      const advice = generateOperationAdvice(makeCtx({
+        factors: [
+          factor('momentum', 3),
+          factor('indicator', 2),
+          factor('takerVol', 2),
+          factor('premium', 1),
+          factor('funding', 1),
+        ],
+        composite: 1.4,
+        direction: 'long',
+        confidence: 72,
+        consensus: 0.75,
+        currentPrice: 105,
+        ma20: 100,
+        rsi: 58,
+        fundingRate: 0.0002,
+        backtestCalibration: {
+          winRate: 56,
+          profitProbability: 54,
+          sampleTrades: 28,
+          source: 'active-backtest',
+          totalReturn: 8,
+          maxDrawdown: 4,
+          sharpe: 1.1,
+          updatedAt: null,
+          note: 'active',
+        },
+        confidenceCalibration: {
+          rawConfidence: 78,
+          confidence: 72,
+          backtestProbability: 54,
+          sampleTrades: 28,
+          factorAgreement: 0.8,
+          indicatorAgreement: 0.7,
+          penalties: [],
+          note: 'ok',
+        },
+      }));
+
+      assert.equal(advice.decisionTrace.raw.direction, 'long');
+      assert.equal(advice.decisionTrace.technical.verdict, 'confirm');
+      assert.equal(advice.decisionTrace.impact.verdict, 'supportive');
+      assert.equal(advice.decisionTrace.backtest.verdict, 'tradable');
+      assert.equal(advice.decisionTrace.final.action, advice.action);
+      assert.ok(advice.decisionTrace.final.summary.includes('做多'));
     });
   });
 });
